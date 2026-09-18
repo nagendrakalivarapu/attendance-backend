@@ -4,7 +4,12 @@ import org.springframework.web.multipart.MultipartFile;
 
 public interface FaceRecognitionService {
 
-    boolean registerFace(String registrationNumber,
-                         MultipartFile image);
+    boolean registerFace(
+            String registrationNumber,
+            MultipartFile image
+    );
 
+    String recognizeFace(
+            MultipartFile image
+    );
 }

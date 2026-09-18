@@ -10,6 +10,7 @@ import com.smartattendance.service.StudentService;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
@@ -139,6 +140,11 @@ public class StudentServiceImpl implements StudentService {
                 );
 
         studentRepository.delete(student);
+    }
+
+    @Override
+    public boolean registerFace(Long studentId, MultipartFile image) {
+        return false;
     }
 
     private StudentResponse mapToResponse(Student student) {

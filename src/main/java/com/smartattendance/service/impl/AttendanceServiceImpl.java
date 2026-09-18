@@ -10,15 +10,14 @@ import com.smartattendance.entity.Enrollment;
 import com.smartattendance.entity.Student;
 import com.smartattendance.enums.AttendanceSessionStatus;
 import com.smartattendance.enums.AttendanceStatus;
-import com.smartattendance.repository.AttendanceRepository;
-import com.smartattendance.repository.CourseRepository;
-import com.smartattendance.repository.EnrollmentRepository;
-import com.smartattendance.repository.StudentRepository;
+import com.smartattendance.repository.*;
 import com.smartattendance.service.AttendanceService;
+import com.smartattendance.service.FaceRecognitionService;
 import lombok.RequiredArgsConstructor;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -34,7 +33,8 @@ public class AttendanceServiceImpl implements AttendanceService {
     private final AttendanceSessionRepository attendanceSessionRepository;
     private final EnrollmentRepository enrollmentRepository;
     private final CourseRepository courseRepository;
-
+    private final FaceRecognitionService faceRecognitionService;
+    private final UserRepository userRepository;
     // ============================================================
     // MARK ATTENDANCE
     // ============================================================
@@ -602,6 +602,42 @@ public class AttendanceServiceImpl implements AttendanceService {
         }
 
         return response;
+    }
+
+    @Override
+    public boolean registerFace(Long studentId, MultipartFile image) {
+
+        if (image == null || image.isEmpty()) {
+            throw new RuntimeException("Face image is required.");
+        }
+
+        Student student = studentRepository.findById(studentId)
+                .orElseThrow(() ->
+                        new RuntimeException(
+                                "Student not found with ID: " + studentId
+                        )
+                );
+
+        String registrationNumber =
+                student.getRegistrationNumber();
+
+        boolean registered =
+                faceRecognitionService.registerFace(
+                        registrationNumber,
+                        image
+                );
+
+        if (!registered) {
+            throw new RuntimeException(
+                    "Face registration failed."
+            );
+        }
+
+        student.setFaceRegistered(true);
+
+        studentRepository.save(student);
+
+        return true;
     }
 
     @Override

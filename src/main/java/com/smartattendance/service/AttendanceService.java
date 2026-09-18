@@ -2,6 +2,7 @@ package com.smartattendance.service;
 
 import com.smartattendance.dto.request.AttendanceRequest;
 import com.smartattendance.dto.response.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -37,6 +38,8 @@ public interface AttendanceService {
             Long courseId,
             double threshold
     );
+
+    boolean registerFace(Long studentId, MultipartFile image);
 
     CourseAttendanceAnalyticsResponse getCourseAttendanceAnalytics(
             Long courseId,

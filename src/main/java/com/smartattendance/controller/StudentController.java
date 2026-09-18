@@ -3,7 +3,9 @@ package com.smartattendance.controller;
 import com.smartattendance.dto.request.StudentRequest;
 import com.smartattendance.dto.response.StudentResponse;
 import com.smartattendance.service.StudentService;
-
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.multipart.MultipartFile;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
@@ -57,5 +59,20 @@ public class StudentController {
             @PathVariable Long id) {
 
         studentService.deleteStudent(id);
+    }
+    @PostMapping(
+            value = "/{id}/face",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE
+    )
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<String> registerFace(
+            @PathVariable Long id,
+            @RequestParam("image") MultipartFile image) {
+
+        studentService.registerFace(id, image);
+
+        return ResponseEntity.ok(
+                "Face registered successfully."
+        );
     }
 }
