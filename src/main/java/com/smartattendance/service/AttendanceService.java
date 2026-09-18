@@ -59,4 +59,10 @@ public interface AttendanceService {
             Long id
     );
     AttendanceSummaryResponse getAttendanceSummary(Long studentId);
+
+    AttendanceResponse markAttendanceByFace(
+            Long sessionId,
+            String recognizedRegistrationNumber,
+            String loggedInEmail
+    );
 }

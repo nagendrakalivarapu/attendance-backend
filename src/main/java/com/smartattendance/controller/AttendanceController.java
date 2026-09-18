@@ -3,14 +3,21 @@ package com.smartattendance.controller;
 import com.smartattendance.dto.request.AttendanceRequest;
 import com.smartattendance.dto.response.*;
 import com.smartattendance.service.AttendanceService;
+import com.smartattendance.service.FaceRecognitionService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+
+import org.springframework.web.bind.annotation.RequestParam;
 import java.time.LocalDate;
 import java.util.List;
 
@@ -20,6 +27,7 @@ import java.util.List;
 public class AttendanceController {
 
     private final AttendanceService attendanceService;
+    private final FaceRecognitionService faceRecognitionService;
 
     @PostMapping
     @PreAuthorize("hasAnyRole('ADMIN','TEACHER')")
@@ -143,5 +151,44 @@ public class AttendanceController {
                         threshold
                 )
         );
+    }
+
+    @PostMapping(
+            value = "/face/{sessionId}",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE
+    )
+    @PreAuthorize("hasRole('STUDENT')")
+    public ResponseEntity<AttendanceResponse> markAttendanceByFace(
+            @PathVariable Long sessionId,
+            @RequestParam("image") MultipartFile image) {
+
+        if (image == null || image.isEmpty()) {
+
+            throw new RuntimeException(
+                    "Face image is required."
+            );
+        }
+
+        Authentication authentication =
+                SecurityContextHolder
+                        .getContext()
+                        .getAuthentication();
+
+        String loggedInEmail =
+                authentication.getName();
+
+        String recognizedRegistrationNumber =
+                faceRecognitionService.recognizeFace(image);
+
+        AttendanceResponse response =
+                attendanceService.markAttendanceByFace(
+                        sessionId,
+                        recognizedRegistrationNumber,
+                        loggedInEmail
+                );
+
+        return ResponseEntity
+                .status(HttpStatus.CREATED)
+                .body(response);
     }
 }

@@ -902,6 +902,117 @@ public class AttendanceServiceImpl implements AttendanceService {
 
         attendanceRepository.delete(attendance);
     }
+    @Override
+    public AttendanceResponse markAttendanceByFace(
+            Long sessionId,
+            String recognizedRegistrationNumber,
+            String loggedInEmail) {
+
+        Student loggedInStudent =
+                studentRepository.findByUser_Email(loggedInEmail)
+                        .orElseThrow(() ->
+                                new RuntimeException(
+                                        "Student account not found."
+                                )
+                        );
+
+        Student recognizedStudent =
+                studentRepository
+                        .findByRegistrationNumber(
+                                recognizedRegistrationNumber
+                        )
+                        .orElseThrow(() ->
+                                new RuntimeException(
+                                        "Recognized student not found."
+                                )
+                        );
+
+        if (!loggedInStudent.getId()
+                .equals(recognizedStudent.getId())) {
+
+            throw new RuntimeException(
+                    "Face does not match the logged-in student."
+            );
+        }
+
+        if (!Boolean.TRUE.equals(
+                recognizedStudent.getFaceRegistered())) {
+
+            throw new RuntimeException(
+                    "Face is not registered for this student."
+            );
+        }
+
+        AttendanceSession session =
+                attendanceSessionRepository
+                        .findById(sessionId)
+                        .orElseThrow(() ->
+                                new RuntimeException(
+                                        "Attendance session not found."
+                                )
+                        );
+
+        if (session.getStatus()
+                != AttendanceSessionStatus.OPEN) {
+
+            throw new RuntimeException(
+                    "Attendance session is closed."
+            );
+        }
+
+        Course course = session.getCourse();
+
+        if (course == null) {
+
+            throw new RuntimeException(
+                    "No course associated with this session."
+            );
+        }
+
+        boolean enrolled =
+                enrollmentRepository
+                        .existsByStudentIdAndCourseId(
+                                recognizedStudent.getId(),
+                                course.getId()
+                        );
+
+        if (!enrolled) {
+
+            throw new RuntimeException(
+                    "Student is not enrolled in this course."
+            );
+        }
+
+        boolean alreadyMarked =
+                attendanceRepository
+                        .existsByStudentIdAndSessionId(
+                                recognizedStudent.getId(),
+                                sessionId
+                        );
+
+        if (alreadyMarked) {
+
+            throw new RuntimeException(
+                    "Attendance already marked for this session."
+            );
+        }
+
+        Attendance attendance =
+                Attendance.builder()
+                        .student(recognizedStudent)
+                        .course(course)
+                        .session(session)
+                        .attendanceDate(
+                                session.getAttendanceDate()
+                        )
+                        .status(AttendanceStatus.PRESENT)
+                        .build();
+
+        Attendance savedAttendance =
+                attendanceRepository.save(attendance);
+
+        return mapToResponse(savedAttendance);
+    }
 
 
     // ============================================================
