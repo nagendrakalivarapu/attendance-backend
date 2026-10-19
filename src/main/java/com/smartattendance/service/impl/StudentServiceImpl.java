@@ -6,9 +6,11 @@ import com.smartattendance.entity.Student;
 import com.smartattendance.entity.User;
 import com.smartattendance.repository.StudentRepository;
 import com.smartattendance.repository.UserRepository;
+import com.smartattendance.service.FaceRecognitionService;
 import com.smartattendance.service.StudentService;
 
 import lombok.RequiredArgsConstructor;
+
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -19,10 +21,19 @@ import java.util.List;
 public class StudentServiceImpl implements StudentService {
 
     private final StudentRepository studentRepository;
+
     private final UserRepository userRepository;
 
+    private final FaceRecognitionService faceRecognitionService;
+
+
+    // ============================================================
+    // CREATE STUDENT
+    // ============================================================
+
     @Override
-    public StudentResponse createStudent(StudentRequest request) {
+    public StudentResponse createStudent(
+            StudentRequest request) {
 
         // Check duplicate registration number
         if (studentRepository.existsByRegistrationNumber(
@@ -34,21 +45,40 @@ public class StudentServiceImpl implements StudentService {
         }
 
         // Find user
-        User user = userRepository.findById(request.getUserId())
-                .orElseThrow(() ->
-                        new RuntimeException("User not found.")
-                );
+        User user = userRepository.findById(
+                request.getUserId()
+        ).orElseThrow(() ->
+                new RuntimeException(
+                        "User not found."
+                )
+        );
 
         // Create student
         Student student = Student.builder()
-                .registrationNumber(request.getRegistrationNumber())
-                .department(request.getDepartment())
-                .semester(request.getSemester())
-                .section(request.getSection())
-                .phone(request.getPhone())
-                .dateOfBirth(request.getDateOfBirth())
-                .gender(request.getGender())
-                .address(request.getAddress())
+                .registrationNumber(
+                        request.getRegistrationNumber()
+                )
+                .department(
+                        request.getDepartment()
+                )
+                .semester(
+                        request.getSemester()
+                )
+                .section(
+                        request.getSection()
+                )
+                .phone(
+                        request.getPhone()
+                )
+                .dateOfBirth(
+                        request.getDateOfBirth()
+                )
+                .gender(
+                        request.getGender()
+                )
+                .address(
+                        request.getAddress()
+                )
                 .user(user)
                 .build();
 
@@ -56,6 +86,11 @@ public class StudentServiceImpl implements StudentService {
 
         return mapToResponse(student);
     }
+
+
+    // ============================================================
+    // GET ALL STUDENTS
+    // ============================================================
 
     @Override
     public List<StudentResponse> getAllStudents() {
@@ -66,30 +101,50 @@ public class StudentServiceImpl implements StudentService {
                 .toList();
     }
 
+
+    // ============================================================
+    // GET STUDENT BY ID
+    // ============================================================
+
     @Override
-    public StudentResponse getStudentById(Long id) {
+    public StudentResponse getStudentById(
+            Long id) {
 
         Student student = studentRepository.findById(id)
                 .orElseThrow(() ->
-                        new RuntimeException("Student not found.")
+                        new RuntimeException(
+                                "Student not found."
+                        )
                 );
 
         return mapToResponse(student);
     }
+
+
+    // ============================================================
+    // UPDATE STUDENT
+    // ============================================================
 
     @Override
     public StudentResponse updateStudent(
             Long id,
             StudentRequest request) {
 
-        Student student = studentRepository.findById(id)
-                .orElseThrow(() ->
-                        new RuntimeException("Student not found.")
-                );
+        Student student =
+                studentRepository.findById(id)
+                        .orElseThrow(() ->
+                                new RuntimeException(
+                                        "Student not found."
+                                )
+                        );
 
-        User user = userRepository.findById(request.getUserId())
-                .orElseThrow(() ->
-                        new RuntimeException("User not found.")
+        User user =
+                userRepository.findById(
+                        request.getUserId()
+                ).orElseThrow(() ->
+                        new RuntimeException(
+                                "User not found."
+                        )
                 );
 
         student.setRegistrationNumber(
@@ -131,59 +186,141 @@ public class StudentServiceImpl implements StudentService {
         return mapToResponse(student);
     }
 
-    @Override
-    public void deleteStudent(Long id) {
 
-        Student student = studentRepository.findById(id)
-                .orElseThrow(() ->
-                        new RuntimeException("Student not found.")
-                );
+    // ============================================================
+    // DELETE STUDENT
+    // ============================================================
+
+    @Override
+    public void deleteStudent(
+            Long id) {
+
+        Student student =
+                studentRepository.findById(id)
+                        .orElseThrow(() ->
+                                new RuntimeException(
+                                        "Student not found."
+                                )
+                        );
 
         studentRepository.delete(student);
     }
 
+
+    // ============================================================
+    // REGISTER FACE
+    // ============================================================
+
     @Override
-    public boolean registerFace(Long studentId, MultipartFile image) {
-        return false;
+    public boolean registerFace(
+            Long studentId,
+            MultipartFile image) {
+
+        // Check image
+        if (image == null || image.isEmpty()) {
+
+            throw new RuntimeException(
+                    "Face image is required."
+            );
+        }
+
+        // Find student
+        Student student =
+                studentRepository.findById(studentId)
+                        .orElseThrow(() ->
+                                new RuntimeException(
+                                        "Student not found."
+                                )
+                        );
+
+        // Get registration number
+        String registrationNumber =
+                student.getRegistrationNumber();
+
+        // Send image to FastAPI
+        boolean registered =
+                faceRecognitionService.registerFace(
+                        registrationNumber,
+                        image
+                );
+
+        // FastAPI registration failed
+        if (!registered) {
+
+            throw new RuntimeException(
+                    "Face registration failed. "
+                    + "Please make sure the image contains "
+                    + "exactly one face."
+            );
+        }
+
+        // Mark face as registered
+        student.setFaceRegistered(true);
+
+        // Save updated student
+        studentRepository.save(student);
+
+        return true;
     }
 
-    private StudentResponse mapToResponse(Student student) {
+
+    // ============================================================
+    // MAP ENTITY TO RESPONSE
+    // ============================================================
+
+    private StudentResponse mapToResponse(
+            Student student) {
 
         return StudentResponse.builder()
-                .id(student.getId())
+
+                .id(
+                        student.getId()
+                )
+
                 .registrationNumber(
                         student.getRegistrationNumber()
                 )
+
                 .department(
                         student.getDepartment()
                 )
+
                 .semester(
                         student.getSemester()
                 )
+
                 .section(
                         student.getSection()
                 )
+
                 .phone(
                         student.getPhone()
                 )
+
                 .dateOfBirth(
                         student.getDateOfBirth()
                 )
+
                 .gender(
                         student.getGender()
                 )
+
                 .address(
                         student.getAddress()
                 )
+
                 .studentName(
                         student.getUser().getFullName()
                 )
+
                 .email(
                         student.getUser().getEmail()
                 )
+
                 .faceRegistered(
                         student.getFaceRegistered()
                 )
+
                 .build();
     }
 }
