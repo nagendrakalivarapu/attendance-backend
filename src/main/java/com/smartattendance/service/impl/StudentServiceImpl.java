@@ -8,7 +8,8 @@ import com.smartattendance.repository.StudentRepository;
 import com.smartattendance.repository.UserRepository;
 import com.smartattendance.service.FaceRecognitionService;
 import com.smartattendance.service.StudentService;
-
+import com.smartattendance.enums.UserRole;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import lombok.RequiredArgsConstructor;
 
 import org.springframework.stereotype.Service;
@@ -25,15 +26,14 @@ public class StudentServiceImpl implements StudentService {
     private final UserRepository userRepository;
 
     private final FaceRecognitionService faceRecognitionService;
-
+    private final PasswordEncoder passwordEncoder;
 
     // ============================================================
     // CREATE STUDENT
     // ============================================================
 
     @Override
-    public StudentResponse createStudent(
-            StudentRequest request) {
+    public StudentResponse createStudent(StudentRequest request) {
 
         // Check duplicate registration number
         if (studentRepository.existsByRegistrationNumber(
@@ -44,16 +44,32 @@ public class StudentServiceImpl implements StudentService {
             );
         }
 
-        // Find user
-        User user = userRepository.findById(
-                request.getUserId()
-        ).orElseThrow(() ->
-                new RuntimeException(
-                        "User not found."
-                )
-        );
+        // Check duplicate email
+        if (userRepository.findByEmail(request.getEmail()).isPresent()) {
 
-        // Create student
+            throw new RuntimeException(
+                    "Email already exists."
+            );
+        }
+
+        // ========================================================
+        // CREATE USER ACCOUNT
+        // ========================================================
+
+        User user = User.builder()
+                .fullName(request.getFullName())
+                .email(request.getEmail())
+                .password(passwordEncoder.encode(request.getPassword()))
+                .role(UserRole.STUDENT)
+                .enabled(true)
+                .build();
+
+        user = userRepository.save(user);
+
+        // ========================================================
+        // CREATE STUDENT
+        // ========================================================
+
         Student student = Student.builder()
                 .registrationNumber(
                         request.getRegistrationNumber()
@@ -130,6 +146,7 @@ public class StudentServiceImpl implements StudentService {
             Long id,
             StudentRequest request) {
 
+        // Find existing student
         Student student =
                 studentRepository.findById(id)
                         .orElseThrow(() ->
@@ -138,14 +155,18 @@ public class StudentServiceImpl implements StudentService {
                                 )
                         );
 
-        User user =
-                userRepository.findById(
-                        request.getUserId()
-                ).orElseThrow(() ->
-                        new RuntimeException(
-                                "User not found."
-                        )
-                );
+        // Get the User already linked to this student
+        User user = student.getUser();
+
+        if (user == null) {
+            throw new RuntimeException(
+                    "Student does not have a linked user account."
+            );
+        }
+
+        // ============================================================
+        // UPDATE STUDENT INFORMATION
+        // ============================================================
 
         student.setRegistrationNumber(
                 request.getRegistrationNumber()
@@ -179,8 +200,52 @@ public class StudentServiceImpl implements StudentService {
                 request.getAddress()
         );
 
-        student.setUser(user);
+        // ============================================================
+        // UPDATE USER INFORMATION
+        // ============================================================
 
+        // Update name
+        if (request.getFullName() != null &&
+                !request.getFullName().isBlank()) {
+
+            user.setFullName(
+                    request.getFullName()
+            );
+        }
+
+        // Update email
+        if (request.getEmail() != null &&
+                !request.getEmail().isBlank() &&
+                !request.getEmail().equals(user.getEmail())) {
+
+            if (userRepository.existsByEmail(
+                    request.getEmail())) {
+
+                throw new RuntimeException(
+                        "Email already exists."
+                );
+            }
+
+            user.setEmail(
+                    request.getEmail()
+            );
+        }
+
+        // Update password only if a new password was entered
+        if (request.getPassword() != null &&
+                !request.getPassword().isBlank()) {
+
+            user.setPassword(
+                    passwordEncoder.encode(
+                            request.getPassword()
+                    )
+            );
+        }
+
+        // Save User
+        userRepository.save(user);
+
+        // Save Student
         student = studentRepository.save(student);
 
         return mapToResponse(student);

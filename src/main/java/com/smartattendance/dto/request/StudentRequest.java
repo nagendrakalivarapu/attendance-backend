@@ -1,5 +1,6 @@
 package com.smartattendance.dto.request;
 
+import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.AllArgsConstructor;
@@ -15,6 +16,17 @@ import java.time.LocalDate;
 @AllArgsConstructor
 public class StudentRequest {
 
+    // User information
+    @NotBlank
+    private String fullName;
+
+    @NotBlank
+    @Email
+    private String email;
+
+    private String password;
+
+    // Student information
     @NotBlank
     private String registrationNumber;
 
@@ -36,6 +48,6 @@ public class StudentRequest {
 
     private String address;
 
-    @NotNull
+    // Used only internally for existing students/update
     private Long userId;
 }
