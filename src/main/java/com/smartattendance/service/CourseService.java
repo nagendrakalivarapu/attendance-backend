@@ -22,4 +22,6 @@ public interface CourseService {
     List<CourseResponse> getCoursesBySemester(Integer semester);
 
     List<CourseResponse> getCoursesByTeacher(Long teacherId);
+
+    List<CourseResponse> getMyCourses(String email);
 }

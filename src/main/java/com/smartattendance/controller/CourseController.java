@@ -3,6 +3,7 @@ package com.smartattendance.controller;
 import com.smartattendance.dto.request.CourseRequest;
 import com.smartattendance.dto.response.CourseResponse;
 import com.smartattendance.service.CourseService;
+import org.springframework.security.core.Authentication;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -32,6 +33,15 @@ public class CourseController {
     public List<CourseResponse> getAllCourses() {
 
         return courseService.getAllCourses();
+    }
+
+    @GetMapping("/my-courses")
+    @PreAuthorize("hasRole('TEACHER')")
+    public List<CourseResponse> getMyCourses(Authentication authentication) {
+
+        return courseService.getMyCourses(
+                authentication.getName()
+        );
     }
 
     @GetMapping("/{id}")
@@ -85,4 +95,5 @@ public class CourseController {
         return courseService
                 .getCoursesByTeacher(teacherId);
     }
+
 }

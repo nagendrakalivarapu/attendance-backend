@@ -7,6 +7,8 @@ import com.smartattendance.entity.Teacher;
 import com.smartattendance.repository.CourseRepository;
 import com.smartattendance.repository.TeacherRepository;
 import com.smartattendance.service.CourseService;
+import com.smartattendance.entity.User;
+import com.smartattendance.repository.UserRepository;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -19,6 +21,7 @@ public class CourseServiceImpl implements CourseService {
 
     private final CourseRepository courseRepository;
     private final TeacherRepository teacherRepository;
+    private final UserRepository userRepository;
 
     @Override
     public CourseResponse createCourse(CourseRequest request) {
@@ -150,6 +153,24 @@ public class CourseServiceImpl implements CourseService {
 
         return courseRepository
                 .findByTeacherId(teacherId)
+                .stream()
+                .map(this::mapToResponse)
+                .toList();
+    }
+
+    @Override
+    public List<CourseResponse> getMyCourses(String email) {
+
+        Teacher teacher = teacherRepository
+                .findByUser_Email(email)
+                .orElseThrow(() ->
+                        new RuntimeException(
+                                "Teacher not found for logged-in user."
+                        )
+                );
+
+        return courseRepository
+                .findByTeacherId(teacher.getId())
                 .stream()
                 .map(this::mapToResponse)
                 .toList();
