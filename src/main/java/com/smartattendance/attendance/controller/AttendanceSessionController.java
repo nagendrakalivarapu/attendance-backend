@@ -38,6 +38,20 @@ public class AttendanceSessionController {
                 .body(response);
     }
 
+    // ============================================================
+    // GET OPEN ATTENDANCE SESSION FOR COURSE
+    // ============================================================
+
+    @GetMapping("/course/{courseId}/open")
+    @PreAuthorize("hasRole('TEACHER')")
+    public ResponseEntity<AttendanceSessionResponse> getOpenSession(
+            @PathVariable Long courseId) {
+
+        return ResponseEntity.ok(
+                attendanceSessionService
+                        .getOpenSessionForCourse(courseId)
+        );
+    }
 
     // ============================================================
     // GET ATTENDANCE SESSION
@@ -69,4 +83,5 @@ public class AttendanceSessionController {
                 "Attendance session closed successfully."
         );
     }
+
 }

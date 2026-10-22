@@ -18,6 +18,12 @@ public interface AttendanceSessionRepository
             Long id,
             AttendanceSessionStatus status
     );
+
+    Optional<AttendanceSession> findByCourseIdAndStatus(
+            Long courseId,
+            AttendanceSessionStatus status
+    );
+
     boolean existsByCourseIdAndStatus(
             Long courseId,
             AttendanceSessionStatus status
@@ -27,6 +33,4 @@ public interface AttendanceSessionRepository
             Long courseId,
             AttendanceSessionStatus status
     );
-
-
 }

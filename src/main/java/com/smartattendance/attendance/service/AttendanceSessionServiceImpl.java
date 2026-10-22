@@ -195,6 +195,59 @@ public class AttendanceSessionServiceImpl
         return mapToResponse(session);
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public AttendanceSessionResponse getOpenSessionForCourse(
+            Long courseId) {
+
+        Authentication authentication =
+                SecurityContextHolder
+                        .getContext()
+                        .getAuthentication();
+
+        if (authentication == null ||
+                !authentication.isAuthenticated()) {
+
+            throw new RuntimeException(
+                    "User is not authenticated"
+            );
+        }
+
+        String email = authentication.getName();
+
+        Teacher teacher =
+                teacherRepository
+                        .findByUser_Email(email)
+                        .orElseThrow(() ->
+                                new RuntimeException(
+                                        "Teacher not found for logged-in user"
+                                )
+                        );
+
+        AttendanceSession session =
+                attendanceSessionRepository
+                        .findByCourseIdAndStatus(
+                                courseId,
+                                AttendanceSessionStatus.OPEN
+                        )
+                        .orElseThrow(() ->
+                                new RuntimeException(
+                                        "No open attendance session found for this course"
+                                )
+                        );
+
+        if (session.getTeacher() == null ||
+                !session.getTeacher()
+                        .getId()
+                        .equals(teacher.getId())) {
+
+            throw new RuntimeException(
+                    "You are not authorized to view this attendance session"
+            );
+        }
+
+        return mapToResponse(session);
+    }
 
     // ============================================================
     // CLOSE ATTENDANCE SESSION

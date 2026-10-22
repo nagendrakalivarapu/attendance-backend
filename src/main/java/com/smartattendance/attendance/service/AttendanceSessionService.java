@@ -11,5 +11,9 @@ public interface AttendanceSessionService {
 
     AttendanceSessionResponse getSession(Long id);
 
+    AttendanceSessionResponse getOpenSessionForCourse(
+            Long courseId
+    );
+
     void closeSession(Long id);
 }
