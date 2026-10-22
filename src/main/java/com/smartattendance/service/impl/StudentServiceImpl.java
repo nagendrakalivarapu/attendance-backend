@@ -117,6 +117,16 @@ public class StudentServiceImpl implements StudentService {
                 .toList();
     }
 
+    @Override
+    public StudentResponse getMyProfile(String email) {
+
+        Student student = studentRepository.findByUser_Email(email)
+                .orElseThrow(() -> new RuntimeException(
+                        "Student not found for logged-in user."
+                ));
+
+        return mapToResponse(student);
+    }
 
     // ============================================================
     // GET STUDENT BY ID

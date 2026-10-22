@@ -3,6 +3,7 @@ package com.smartattendance.controller;
 import com.smartattendance.dto.request.StudentRequest;
 import com.smartattendance.dto.response.StudentResponse;
 import com.smartattendance.service.StudentService;
+import org.springframework.security.core.Authentication;
 
 import jakarta.validation.Valid;
 
@@ -51,6 +52,11 @@ public class StudentController {
         return studentService.getAllStudents();
     }
 
+    @GetMapping("/me")
+    @PreAuthorize("hasRole('STUDENT')")
+    public StudentResponse getMyProfile(Authentication authentication) {
+        return studentService.getMyProfile(authentication.getName());
+    }
 
     // ============================================================
     // GET STUDENT BY ID
@@ -63,6 +69,7 @@ public class StudentController {
 
         return studentService.getStudentById(id);
     }
+
 
 
     // ============================================================

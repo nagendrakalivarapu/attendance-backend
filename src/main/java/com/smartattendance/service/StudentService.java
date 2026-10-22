@@ -14,6 +14,8 @@ public interface StudentService {
 
     StudentResponse getStudentById(Long id);
 
+    StudentResponse getMyProfile(String email);
+
     StudentResponse updateStudent(Long id, StudentRequest request);
 
     void deleteStudent(Long id);
