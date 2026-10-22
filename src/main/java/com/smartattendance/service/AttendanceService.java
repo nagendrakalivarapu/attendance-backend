@@ -12,6 +12,9 @@ public interface AttendanceService {
     AttendanceResponse markAttendance(
             AttendanceRequest request
     );
+    AttendanceSummaryResponse getMyAttendanceSummary(String email);
+
+    List<CourseAttendanceSummaryResponse> getMyCourseWiseAttendance(String email);
 
     List<AttendanceResponse> getAttendanceByStudent(
             Long studentId
@@ -65,4 +68,6 @@ public interface AttendanceService {
             String recognizedRegistrationNumber,
             String loggedInEmail
     );
+
+
 }

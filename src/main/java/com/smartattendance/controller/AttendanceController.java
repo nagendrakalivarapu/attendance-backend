@@ -87,6 +87,33 @@ public class AttendanceController {
         return ResponseEntity.ok("Attendance deleted successfully.");
     }
 
+    @GetMapping("/me/summary")
+    @PreAuthorize("hasRole('STUDENT')")
+    public ResponseEntity<AttendanceSummaryResponse> getMyAttendanceSummary(
+            Authentication authentication
+    ) {
+
+        return ResponseEntity.ok(
+                attendanceService.getMyAttendanceSummary(
+                        authentication.getName()
+                )
+        );
+    }
+
+    @GetMapping("/me/courses")
+    @PreAuthorize("hasRole('STUDENT')")
+    public ResponseEntity<List<CourseAttendanceSummaryResponse>>
+    getMyCourseWiseAttendance(
+            Authentication authentication
+    ) {
+
+        return ResponseEntity.ok(
+                attendanceService.getMyCourseWiseAttendance(
+                        authentication.getName()
+                )
+        );
+    }
+
     @GetMapping("/student/{studentId}/summary")
     @PreAuthorize("hasAnyRole('ADMIN', 'TEACHER', 'STUDENT')")
     public ResponseEntity<AttendanceSummaryResponse> getAttendanceSummary(

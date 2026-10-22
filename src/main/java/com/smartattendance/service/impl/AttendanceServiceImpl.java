@@ -278,6 +278,34 @@ public class AttendanceServiceImpl implements AttendanceService {
                 )
                 .build();
     }
+
+    @Override
+    @Transactional(readOnly = true)
+    public AttendanceSummaryResponse getMyAttendanceSummary(String email) {
+
+        Student student = studentRepository
+                .findByUser_Email(email)
+                .orElseThrow(() ->
+                        new RuntimeException(
+                                "Student not found for logged-in user."
+                        )
+                );
+
+        return getAttendanceSummary(student.getId());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<CourseAttendanceSummaryResponse> getMyCourseWiseAttendance(String email) {
+
+        Student student = studentRepository.findByUser_Email(email)
+                .orElseThrow(() -> new RuntimeException(
+                        "Student not found for logged-in user."
+                ));
+
+        return getCourseWiseAttendance(student.getId());
+    }
+
     @Override
     @Transactional(readOnly = true)
     public List<StudentCourseAttendanceResponse>
