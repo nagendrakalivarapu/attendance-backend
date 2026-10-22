@@ -73,6 +73,11 @@ public class SecurityConfig {
                                 "/api/auth/**"
                         ).permitAll()
 
+                        // Public student profile pictures
+                        .requestMatchers(
+                                "/uploads/profile-pictures/**"
+                        ).permitAll()
+
                         // Allow browser CORS preflight
                         .requestMatchers(
                                 HttpMethod.OPTIONS,
@@ -88,7 +93,6 @@ public class SecurityConfig {
                         // @PreAuthorize handles specific roles
                         .anyRequest().authenticated()
                 )
-
                 // JWT filter
                 .addFilterBefore(
                         jwtAuthenticationFilter,

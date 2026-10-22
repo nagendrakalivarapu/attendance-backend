@@ -12,7 +12,15 @@ import com.smartattendance.enums.UserRole;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import lombok.RequiredArgsConstructor;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
+import java.util.UUID;
+
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
@@ -338,6 +346,93 @@ public class StudentServiceImpl implements StudentService {
         return true;
     }
 
+    @Override
+    public boolean uploadProfilePicture(Long studentId, MultipartFile image) {
+
+        Student student = studentRepository.findById(studentId)
+                .orElseThrow(() -> new RuntimeException("Student not found."));
+
+        if (image == null || image.isEmpty()) {
+            throw new RuntimeException("Profile picture is required.");
+        }
+
+        String contentType = image.getContentType();
+
+        if (contentType == null ||
+                !(contentType.equals("image/jpeg")
+                        || contentType.equals("image/png")
+                        || contentType.equals("image/webp"))) {
+
+            throw new RuntimeException(
+                    "Only JPG, PNG, and WEBP images are allowed."
+            );
+        }
+
+        if (image.getSize() > 5 * 1024 * 1024) {
+            throw new RuntimeException(
+                    "Profile picture must be less than 5 MB."
+            );
+        }
+
+        try {
+
+            Path uploadDirectory =
+                    Paths.get("uploads/profile-pictures");
+
+            Files.createDirectories(uploadDirectory);
+
+            // Delete previous profile picture
+            if (student.getProfilePicture() != null) {
+
+                Path oldFile =
+                        Paths.get(student.getProfilePicture());
+
+                if (Files.exists(oldFile)) {
+                    Files.delete(oldFile);
+                }
+            }
+
+            String originalFilename =
+                    image.getOriginalFilename();
+
+            String extension = ".jpg";
+
+            if (originalFilename != null &&
+                    originalFilename.contains(".")) {
+
+                extension = originalFilename.substring(
+                        originalFilename.lastIndexOf(".")
+                ).toLowerCase();
+            }
+
+            String filename =
+                    UUID.randomUUID() + extension;
+
+            Path targetPath =
+                    uploadDirectory.resolve(filename);
+
+            Files.copy(
+                    image.getInputStream(),
+                    targetPath,
+                    StandardCopyOption.REPLACE_EXISTING
+            );
+
+            student.setProfilePicture(
+                    targetPath.toString()
+            );
+
+            studentRepository.save(student);
+
+            return true;
+
+        } catch (IOException e) {
+
+            throw new RuntimeException(
+                    "Failed to save profile picture.",
+                    e
+            );
+        }
+    }
 
     // ============================================================
     // MAP ENTITY TO RESPONSE
@@ -394,6 +489,14 @@ public class StudentServiceImpl implements StudentService {
 
                 .faceRegistered(
                         student.getFaceRegistered()
+                )
+
+                .faceRegistered(
+                        student.getFaceRegistered()
+                )
+
+                .profilePicture(
+                        student.getProfilePicture()
                 )
 
                 .build();

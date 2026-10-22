@@ -36,4 +36,6 @@ public class StudentResponse {
     private String email;
 
     private Boolean faceRegistered;
+
+    private String profilePicture;
 }

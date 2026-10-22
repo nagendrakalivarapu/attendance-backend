@@ -39,6 +39,9 @@ public class Student extends BaseEntity {
     @Builder.Default
     private Boolean faceRegistered = false;
 
+    @Column(name = "profile_picture")
+    private String profilePicture;
+
     @OneToOne
     @JoinColumn(name = "user_id", nullable = false, unique = true)
     private User user;

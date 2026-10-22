@@ -19,6 +19,11 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
+import org.springframework.http.MediaType;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/api/student")
@@ -144,5 +149,32 @@ public class StudentController {
         // Face registration successful
         return ResponseEntity
                 .ok("Face registered successfully.");
+    }
+
+    @PostMapping(
+            value = "/{id}/profile-picture",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE
+    )
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<String> uploadProfilePicture(
+            @PathVariable Long id,
+            @RequestParam("image") MultipartFile image) {
+
+        if (image == null || image.isEmpty()) {
+            return ResponseEntity.badRequest()
+                    .body("Profile picture is required.");
+        }
+
+        boolean uploaded =
+                studentService.uploadProfilePicture(id, image);
+
+        if (!uploaded) {
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                    .body("Profile picture upload failed.");
+        }
+
+        return ResponseEntity.ok(
+                "Profile picture uploaded successfully."
+        );
     }
 }

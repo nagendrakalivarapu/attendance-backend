@@ -21,4 +21,7 @@ public interface StudentService {
     void deleteStudent(Long id);
 
     boolean registerFace(Long studentId, MultipartFile image);
+
+    boolean uploadProfilePicture(Long studentId, MultipartFile image);
+
 }
