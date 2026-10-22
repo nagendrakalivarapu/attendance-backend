@@ -3,6 +3,7 @@ package com.smartattendance.controller;
 import com.smartattendance.dto.request.EnrollmentRequest;
 import com.smartattendance.dto.response.EnrollmentResponse;
 import com.smartattendance.service.EnrollmentService;
+import org.springframework.security.core.Authentication;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -32,6 +33,15 @@ public class EnrollmentController {
     public List<EnrollmentResponse> getAllEnrollments() {
 
         return enrollmentService.getAllEnrollments();
+    }
+    @GetMapping("/my-courses")
+    @PreAuthorize("hasRole('STUDENT')")
+    public List<EnrollmentResponse> getMyCourses(
+            Authentication authentication
+    ) {
+        return enrollmentService.getMyEnrollments(
+                authentication.getName()
+        );
     }
 
     @GetMapping("/{id}")

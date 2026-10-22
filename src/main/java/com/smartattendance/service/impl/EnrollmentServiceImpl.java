@@ -109,6 +109,20 @@ public class EnrollmentServiceImpl implements EnrollmentService {
     }
 
     @Override
+    public List<EnrollmentResponse> getMyEnrollments(String email) {
+
+        Student student = studentRepository.findByUser_Email(email)
+                .orElseThrow(() -> new RuntimeException(
+                        "Student not found for logged-in user."
+                ));
+
+        return enrollmentRepository.findByStudentId(student.getId())
+                .stream()
+                .map(this::mapToResponse)
+                .toList();
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public List<EnrollmentResponse> getEnrollmentsByCourse(
             Long courseId) {

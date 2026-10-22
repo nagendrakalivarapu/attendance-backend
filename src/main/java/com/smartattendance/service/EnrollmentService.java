@@ -23,6 +23,10 @@ public interface EnrollmentService {
             Long courseId
     );
 
+    List<EnrollmentResponse> getMyEnrollments(
+            String email
+    );
+
     EnrollmentResponse updateEnrollmentStatus(
             Long id,
             String status
