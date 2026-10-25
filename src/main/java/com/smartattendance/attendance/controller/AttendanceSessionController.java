@@ -1,7 +1,9 @@
 package com.smartattendance.attendance.controller;
 
 import com.smartattendance.attendance.dto.request.StartAttendanceRequest;
+import com.smartattendance.attendance.dto.response.AttendanceSessionHistoryResponse;
 import com.smartattendance.attendance.dto.response.AttendanceSessionResponse;
+import com.smartattendance.attendance.dto.response.AttendanceSessionStudentResponse;
 import com.smartattendance.attendance.service.AttendanceSessionService;
 import java.util.List;
 import org.springframework.security.core.Authentication;
@@ -93,6 +95,34 @@ public class AttendanceSessionController {
 
         return ResponseEntity.ok(
                 attendanceSessionService.getMyOpenSessions(
+                        authentication.getName()
+                )
+        );
+    }
+
+    @GetMapping("/my-history")
+    @PreAuthorize("hasRole('TEACHER')")
+    public ResponseEntity<List<AttendanceSessionHistoryResponse>> getMyHistory(
+            Authentication authentication
+    ) {
+
+        return ResponseEntity.ok(
+                attendanceSessionService.getMyHistory(
+                        authentication.getName()
+                )
+        );
+    }
+
+    @GetMapping("/{sessionId}/attendance")
+    @PreAuthorize("hasRole('TEACHER')")
+    public ResponseEntity<List<AttendanceSessionStudentResponse>>
+    getSessionAttendance(
+            @PathVariable Long sessionId,
+            Authentication authentication) {
+
+        return ResponseEntity.ok(
+                attendanceSessionService.getSessionAttendance(
+                        sessionId,
                         authentication.getName()
                 )
         );
