@@ -4,23 +4,33 @@ import com.smartattendance.attendance.dto.request.StartAttendanceRequest;
 import com.smartattendance.attendance.dto.response.AttendanceSessionResponse;
 import com.smartattendance.attendance.entity.AttendanceSession;
 import com.smartattendance.attendance.repository.AttendanceSessionRepository;
-import com.smartattendance.entity.*;
+
+import com.smartattendance.entity.Attendance;
+import com.smartattendance.entity.Course;
+import com.smartattendance.entity.Enrollment;
+import com.smartattendance.entity.Student;
+import com.smartattendance.entity.Teacher;
+
 import com.smartattendance.enums.AttendanceSessionStatus;
-import com.smartattendance.repository.CourseRepository;
-import com.smartattendance.repository.TeacherRepository;
-import lombok.RequiredArgsConstructor;
 import com.smartattendance.enums.AttendanceStatus;
+
 import com.smartattendance.repository.AttendanceRepository;
+import com.smartattendance.repository.CourseRepository;
 import com.smartattendance.repository.EnrollmentRepository;
+import com.smartattendance.repository.StudentRepository;
+import com.smartattendance.repository.TeacherRepository;
+
+import lombok.RequiredArgsConstructor;
 
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import com.smartattendance.enums.AttendanceSessionStatus;
+
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
@@ -33,6 +43,8 @@ public class AttendanceSessionServiceImpl
     private final TeacherRepository teacherRepository;
     private final AttendanceRepository attendanceRepository;
     private final EnrollmentRepository enrollmentRepository;
+    private final StudentRepository studentRepository;
+
 
     // ============================================================
     // START ATTENDANCE SESSION
@@ -118,6 +130,7 @@ public class AttendanceSessionServiceImpl
             );
         }
 
+
         // --------------------------------------------------------
         // 6. Prevent multiple OPEN sessions for same course
         // --------------------------------------------------------
@@ -136,6 +149,7 @@ public class AttendanceSessionServiceImpl
                             + "for this course"
             );
         }
+
 
         // --------------------------------------------------------
         // 7. Create attendance session
@@ -195,6 +209,11 @@ public class AttendanceSessionServiceImpl
         return mapToResponse(session);
     }
 
+
+    // ============================================================
+    // GET OPEN SESSION FOR TEACHER'S COURSE
+    // ============================================================
+
     @Override
     @Transactional(readOnly = true)
     public AttendanceSessionResponse getOpenSessionForCourse(
@@ -248,6 +267,45 @@ public class AttendanceSessionServiceImpl
 
         return mapToResponse(session);
     }
+
+
+    // ============================================================
+    // GET MY OPEN SESSIONS FOR STUDENT
+    // ============================================================
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<AttendanceSessionResponse> getMyOpenSessions(
+            String email) {
+
+        Student student =
+                studentRepository
+                        .findByUser_Email(email)
+                        .orElseThrow(() ->
+                                new RuntimeException(
+                                        "Student not found for logged-in user."
+                                )
+                        );
+
+        List<Enrollment> enrollments =
+                enrollmentRepository
+                        .findByStudentId(student.getId());
+
+        return enrollments.stream()
+                .map(Enrollment::getCourse)
+                .map(course ->
+                        attendanceSessionRepository
+                                .findByCourseIdAndStatus(
+                                        course.getId(),
+                                        AttendanceSessionStatus.OPEN
+                                )
+                )
+                .filter(Optional::isPresent)
+                .map(Optional::get)
+                .map(this::mapToResponse)
+                .toList();
+    }
+
 
     // ============================================================
     // CLOSE ATTENDANCE SESSION
@@ -424,6 +482,7 @@ public class AttendanceSessionServiceImpl
 
         attendanceSessionRepository.save(session);
     }
+
 
     // ============================================================
     // MAP ENTITY → RESPONSE
