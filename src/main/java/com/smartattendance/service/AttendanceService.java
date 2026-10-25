@@ -1,6 +1,7 @@
 package com.smartattendance.service;
 
 import com.smartattendance.attendance.dto.response.AttendanceSessionResponse;
+import com.smartattendance.attendance.entity.AttendanceSession;
 import com.smartattendance.dto.request.AttendanceRequest;
 import com.smartattendance.dto.response.*;
 import org.springframework.web.multipart.MultipartFile;

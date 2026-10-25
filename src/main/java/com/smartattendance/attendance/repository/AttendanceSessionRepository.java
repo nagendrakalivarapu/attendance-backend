@@ -33,4 +33,6 @@ public interface AttendanceSessionRepository
             Long courseId,
             AttendanceSessionStatus status
     );
+    List<AttendanceSession> findByTeacherIdOrderByStartedAtDesc(Long teacherId);
+
 }
