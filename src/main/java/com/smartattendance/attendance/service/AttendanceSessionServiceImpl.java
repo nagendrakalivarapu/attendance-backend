@@ -584,6 +584,114 @@ public class AttendanceSessionServiceImpl
                 .toList();
     }
 
+    // ============================================================
+// ADMIN ATTENDANCE HISTORY
+// ============================================================
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<AttendanceSessionHistoryResponse> getAdminHistory() {
+
+        List<AttendanceSession> sessions =
+                attendanceSessionRepository
+                        .findAllByOrderByStartedAtDesc();
+
+        return sessions.stream()
+                .map(session -> {
+
+                    Course course = session.getCourse();
+
+                    if (course == null) {
+                        throw new RuntimeException(
+                                "Course not found for attendance session "
+                                        + session.getId()
+                        );
+                    }
+
+                    List<Attendance> attendanceRecords =
+                            attendanceRepository
+                                    .findBySessionId(session.getId());
+
+                    long presentCount =
+                            attendanceRecords.stream()
+                                    .filter(attendance ->
+                                            attendance.getStatus()
+                                                    == AttendanceStatus.PRESENT
+                                    )
+                                    .count();
+
+                    long absentCount =
+                            attendanceRecords.stream()
+                                    .filter(attendance ->
+                                            attendance.getStatus()
+                                                    == AttendanceStatus.ABSENT
+                                    )
+                                    .count();
+
+                    long totalStudents =
+                            enrollmentRepository
+                                    .findByCourseId(course.getId())
+                                    .size();
+
+                    long markedRecords =
+                            presentCount + absentCount;
+
+                    double attendancePercentage = 0.0;
+
+                    if (markedRecords > 0) {
+
+                        attendancePercentage =
+                                ((double) presentCount /
+                                        markedRecords) * 100.0;
+
+                        attendancePercentage =
+                                Math.round(
+                                        attendancePercentage * 100.0
+                                ) / 100.0;
+                    }
+
+                    String teacherName = "Unknown";
+
+                    if (session.getTeacher() != null &&
+                            session.getTeacher().getUser() != null) {
+
+                        teacherName =
+                                session.getTeacher()
+                                        .getUser()
+                                        .getFullName();
+                    }
+
+                    return AttendanceSessionHistoryResponse
+                            .builder()
+                            .sessionId(session.getId())
+                            .courseId(course.getId())
+                            .courseCode(course.getCourseCode())
+                            .courseName(course.getCourseName())
+                            .teacherName(teacherName)
+                            .attendanceDate(
+                                    session.getAttendanceDate()
+                            )
+                            .startedAt(
+                                    session.getStartedAt()
+                            )
+                            .closedAt(
+                                    session.getClosedAt()
+                            )
+                            .status(
+                                    session.getStatus()
+                            )
+                            .totalStudents(totalStudents)
+                            .presentCount(presentCount)
+                            .absentCount(absentCount)
+                            .attendancePercentage(
+                                    attendancePercentage
+                            )
+                            .build();
+                })
+                .toList();
+    }
+
+
     @Override
     @Transactional(readOnly = true)
     public List<AttendanceSessionStudentResponse> getSessionAttendance(

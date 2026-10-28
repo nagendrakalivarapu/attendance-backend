@@ -23,6 +23,10 @@ public class AttendanceSessionHistoryResponse {
 
     private String courseName;
 
+    private String teacherName;
+
+    private double attendancePercentage;
+
     private LocalDate attendanceDate;
 
     private LocalDateTime startedAt;
@@ -36,4 +40,5 @@ public class AttendanceSessionHistoryResponse {
     private long presentCount;
 
     private long absentCount;
+
 }

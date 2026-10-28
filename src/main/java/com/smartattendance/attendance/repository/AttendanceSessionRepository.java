@@ -42,4 +42,7 @@ public interface AttendanceSessionRepository
     long countByStatus(
             AttendanceSessionStatus status
     );
+
+    List<AttendanceSession> findAllByOrderByStartedAtDesc();
+
 }

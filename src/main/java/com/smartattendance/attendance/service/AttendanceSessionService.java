@@ -26,6 +26,8 @@ public interface AttendanceSessionService {
             String email
     );
 
+    List<AttendanceSessionHistoryResponse> getAdminHistory();
+
     void closeSession(Long id);
 
 }

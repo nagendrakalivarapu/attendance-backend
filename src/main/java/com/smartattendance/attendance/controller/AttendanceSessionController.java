@@ -128,4 +128,15 @@ public class AttendanceSessionController {
         );
     }
 
+    @GetMapping("/admin/history")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<List<AttendanceSessionHistoryResponse>>
+    getAdminHistory() {
+
+        return ResponseEntity.ok(
+                attendanceSessionService.getAdminHistory()
+        );
+    }
+
+
 }
