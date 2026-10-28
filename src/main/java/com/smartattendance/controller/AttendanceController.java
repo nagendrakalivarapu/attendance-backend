@@ -77,6 +77,16 @@ public class AttendanceController {
                 attendanceService.updateAttendance(id, request));
     }
 
+    @GetMapping("/admin/dashboard")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<AdminAttendanceDashboardResponse>
+    getAdminAttendanceDashboard() {
+
+        return ResponseEntity.ok(
+                attendanceService.getAdminAttendanceDashboard()
+        );
+    }
+
     @DeleteMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<String> deleteAttendance(
@@ -149,6 +159,7 @@ public class AttendanceController {
                 )
         );
     }
+
 
     @GetMapping("/course/{courseId}/analytics")
     @PreAuthorize("hasAnyRole('ADMIN', 'TEACHER')")

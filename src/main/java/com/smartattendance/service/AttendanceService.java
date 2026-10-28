@@ -71,5 +71,7 @@ public interface AttendanceService {
             String loggedInEmail
     );
 
+    AdminAttendanceDashboardResponse getAdminAttendanceDashboard();
+
 
 }

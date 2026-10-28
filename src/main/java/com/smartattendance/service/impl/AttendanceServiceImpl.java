@@ -1042,6 +1042,59 @@ public class AttendanceServiceImpl implements AttendanceService {
         return mapToResponse(savedAttendance);
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public AdminAttendanceDashboardResponse getAdminAttendanceDashboard() {
+
+        long totalSessions =
+                attendanceSessionRepository.count();
+
+        long openSessions =
+                attendanceSessionRepository.countByStatus(
+                        AttendanceSessionStatus.OPEN
+                );
+
+        long closedSessions =
+                attendanceSessionRepository.countByStatus(
+                        AttendanceSessionStatus.CLOSED
+                );
+
+        long totalAttendanceRecords =
+                attendanceRepository.count();
+
+        long presentCount =
+                attendanceRepository.countByStatus(
+                        AttendanceStatus.PRESENT
+                );
+
+        long absentCount =
+                attendanceRepository.countByStatus(
+                        AttendanceStatus.ABSENT
+                );
+
+        long markedRecords =
+                presentCount + absentCount;
+
+        double attendancePercentage = 0.0;
+
+        if (markedRecords > 0) {
+            attendancePercentage =
+                    ((double) presentCount / markedRecords) * 100.0;
+
+            attendancePercentage =
+                    Math.round(attendancePercentage * 100.0) / 100.0;
+        }
+
+        return AdminAttendanceDashboardResponse.builder()
+                .totalSessions(totalSessions)
+                .openSessions(openSessions)
+                .closedSessions(closedSessions)
+                .totalAttendanceRecords(totalAttendanceRecords)
+                .presentCount(presentCount)
+                .absentCount(absentCount)
+                .attendancePercentage(attendancePercentage)
+                .build();
+    }
 
     // ============================================================
     // MAP ENTITY → RESPONSE

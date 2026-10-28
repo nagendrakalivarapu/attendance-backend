@@ -74,4 +74,8 @@ public interface AttendanceRepository
             Long courseId,
             AttendanceStatus status
     );
+
+    long countByStatus(AttendanceStatus status);
+
+    long count();
 }
