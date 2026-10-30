@@ -137,6 +137,4 @@ public class AttendanceSessionController {
                 attendanceSessionService.getAdminHistory()
         );
     }
-
-
 }
