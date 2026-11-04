@@ -4,37 +4,42 @@ import com.smartattendance.dto.request.StudentRequest;
 import com.smartattendance.dto.response.StudentResponse;
 import com.smartattendance.entity.Student;
 import com.smartattendance.entity.User;
+import com.smartattendance.enums.UserRole;
+import com.smartattendance.repository.AttendanceRepository;
+import com.smartattendance.repository.EnrollmentRepository;
 import com.smartattendance.repository.StudentRepository;
 import com.smartattendance.repository.UserRepository;
 import com.smartattendance.service.FaceRecognitionService;
 import com.smartattendance.service.StudentService;
-import com.smartattendance.enums.UserRole;
-import org.springframework.security.crypto.password.PasswordEncoder;
+
 import lombok.RequiredArgsConstructor;
+
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
-import java.util.UUID;
-
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.multipart.MultipartFile;
-
 import java.util.List;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
 public class StudentServiceImpl implements StudentService {
 
     private final StudentRepository studentRepository;
-
     private final UserRepository userRepository;
+
+    private final AttendanceRepository attendanceRepository;
+    private final EnrollmentRepository enrollmentRepository;
 
     private final FaceRecognitionService faceRecognitionService;
     private final PasswordEncoder passwordEncoder;
+
 
     // ============================================================
     // CREATE STUDENT
@@ -73,6 +78,7 @@ public class StudentServiceImpl implements StudentService {
                 .build();
 
         user = userRepository.save(user);
+
 
         // ========================================================
         // CREATE STUDENT
@@ -125,26 +131,35 @@ public class StudentServiceImpl implements StudentService {
                 .toList();
     }
 
+
+    // ============================================================
+    // GET MY PROFILE
+    // ============================================================
+
     @Override
     public StudentResponse getMyProfile(String email) {
 
-        Student student = studentRepository.findByUser_Email(email)
-                .orElseThrow(() -> new RuntimeException(
-                        "Student not found for logged-in user."
-                ));
+        Student student = studentRepository
+                .findByUser_Email(email)
+                .orElseThrow(() ->
+                        new RuntimeException(
+                                "Student not found for logged-in user."
+                        )
+                );
 
         return mapToResponse(student);
     }
+
 
     // ============================================================
     // GET STUDENT BY ID
     // ============================================================
 
     @Override
-    public StudentResponse getStudentById(
-            Long id) {
+    public StudentResponse getStudentById(Long id) {
 
-        Student student = studentRepository.findById(id)
+        Student student = studentRepository
+                .findById(id)
                 .orElseThrow(() ->
                         new RuntimeException(
                                 "Student not found."
@@ -166,14 +181,15 @@ public class StudentServiceImpl implements StudentService {
 
         // Find existing student
         Student student =
-                studentRepository.findById(id)
+                studentRepository
+                        .findById(id)
                         .orElseThrow(() ->
                                 new RuntimeException(
                                         "Student not found."
                                 )
                         );
 
-        // Get the User already linked to this student
+        // Get linked User
         User user = student.getUser();
 
         if (user == null) {
@@ -182,9 +198,10 @@ public class StudentServiceImpl implements StudentService {
             );
         }
 
-        // ============================================================
+
+        // ========================================================
         // UPDATE STUDENT INFORMATION
-        // ============================================================
+        // ========================================================
 
         student.setRegistrationNumber(
                 request.getRegistrationNumber()
@@ -218,9 +235,10 @@ public class StudentServiceImpl implements StudentService {
                 request.getAddress()
         );
 
-        // ============================================================
+
+        // ========================================================
         // UPDATE USER INFORMATION
-        // ============================================================
+        // ========================================================
 
         // Update name
         if (request.getFullName() != null &&
@@ -230,6 +248,7 @@ public class StudentServiceImpl implements StudentService {
                     request.getFullName()
             );
         }
+
 
         // Update email
         if (request.getEmail() != null &&
@@ -249,7 +268,8 @@ public class StudentServiceImpl implements StudentService {
             );
         }
 
-        // Update password only if a new password was entered
+
+        // Update password only if provided
         if (request.getPassword() != null &&
                 !request.getPassword().isBlank()) {
 
@@ -259,6 +279,7 @@ public class StudentServiceImpl implements StudentService {
                     )
             );
         }
+
 
         // Save User
         userRepository.save(user);
@@ -275,18 +296,79 @@ public class StudentServiceImpl implements StudentService {
     // ============================================================
 
     @Override
-    public void deleteStudent(
-            Long id) {
+    @Transactional
+    public void deleteStudent(Long id) {
 
-        Student student =
-                studentRepository.findById(id)
-                        .orElseThrow(() ->
-                                new RuntimeException(
-                                        "Student not found."
-                                )
-                        );
+        // --------------------------------------------------------
+        // 1. FIND STUDENT
+        // --------------------------------------------------------
+
+        Student student = studentRepository
+                .findById(id)
+                .orElseThrow(() ->
+                        new RuntimeException(
+                                "Student not found."
+                        )
+                );
+
+
+        // --------------------------------------------------------
+        // 2. SAVE REQUIRED INFORMATION BEFORE DELETION
+        // --------------------------------------------------------
+
+        String registrationNumber =
+                student.getRegistrationNumber();
+
+        String profilePicture =
+                student.getProfilePicture();
+
+        User user =
+                student.getUser();
+
+
+        // --------------------------------------------------------
+        // 3. DELETE ATTENDANCE RECORDS
+        // --------------------------------------------------------
+
+        attendanceRepository.deleteByStudentId(id);
+
+
+        // --------------------------------------------------------
+        // 4. DELETE ENROLLMENTS
+        // --------------------------------------------------------
+
+        enrollmentRepository.deleteByStudentId(id);
+
+
+        // --------------------------------------------------------
+        // 5. DELETE STUDENT RECORD
+        // --------------------------------------------------------
 
         studentRepository.delete(student);
+
+
+        // --------------------------------------------------------
+        // 6. DELETE LINKED USER ACCOUNT
+        // --------------------------------------------------------
+
+        if (user != null) {
+
+            userRepository.delete(user);
+        }
+
+
+        // --------------------------------------------------------
+        // 7. DELETE FACE RECOGNITION FILES
+        // --------------------------------------------------------
+
+        deleteFaceFiles(registrationNumber);
+
+
+        // --------------------------------------------------------
+        // 8. DELETE PROFILE PICTURE
+        // --------------------------------------------------------
+
+        deleteProfilePicture(profilePicture);
     }
 
 
@@ -307,18 +389,22 @@ public class StudentServiceImpl implements StudentService {
             );
         }
 
+
         // Find student
         Student student =
-                studentRepository.findById(studentId)
+                studentRepository
+                        .findById(studentId)
                         .orElseThrow(() ->
                                 new RuntimeException(
                                         "Student not found."
                                 )
                         );
 
+
         // Get registration number
         String registrationNumber =
                 student.getRegistrationNumber();
+
 
         // Send image to FastAPI
         boolean registered =
@@ -327,18 +413,21 @@ public class StudentServiceImpl implements StudentService {
                         image
                 );
 
+
         // FastAPI registration failed
         if (!registered) {
 
             throw new RuntimeException(
                     "Face registration failed. "
-                    + "Please make sure the image contains "
-                    + "exactly one face."
+                            + "Please make sure the image contains "
+                            + "exactly one face."
             );
         }
 
+
         // Mark face as registered
         student.setFaceRegistered(true);
+
 
         // Save updated student
         studentRepository.save(student);
@@ -346,17 +435,38 @@ public class StudentServiceImpl implements StudentService {
         return true;
     }
 
+
+    // ============================================================
+    // UPLOAD PROFILE PICTURE
+    // ============================================================
+
     @Override
-    public boolean uploadProfilePicture(Long studentId, MultipartFile image) {
+    public boolean uploadProfilePicture(
+            Long studentId,
+            MultipartFile image) {
 
-        Student student = studentRepository.findById(studentId)
-                .orElseThrow(() -> new RuntimeException("Student not found."));
+        Student student =
+                studentRepository
+                        .findById(studentId)
+                        .orElseThrow(() ->
+                                new RuntimeException(
+                                        "Student not found."
+                                )
+                        );
 
+
+        // Validate image
         if (image == null || image.isEmpty()) {
-            throw new RuntimeException("Profile picture is required.");
+
+            throw new RuntimeException(
+                    "Profile picture is required."
+            );
         }
 
-        String contentType = image.getContentType();
+
+        // Validate content type
+        String contentType =
+                image.getContentType();
 
         if (contentType == null ||
                 !(contentType.equals("image/jpeg")
@@ -368,29 +478,53 @@ public class StudentServiceImpl implements StudentService {
             );
         }
 
+
+        // Validate file size
         if (image.getSize() > 5 * 1024 * 1024) {
+
             throw new RuntimeException(
                     "Profile picture must be less than 5 MB."
             );
         }
 
+
         try {
 
+            // ----------------------------------------------------
+            // CREATE UPLOAD DIRECTORY
+            // ----------------------------------------------------
+
             Path uploadDirectory =
-                    Paths.get("uploads/profile-pictures");
+                    Paths.get(
+                            "uploads/profile-pictures"
+                    );
 
-            Files.createDirectories(uploadDirectory);
+            Files.createDirectories(
+                    uploadDirectory
+            );
 
-            // Delete previous profile picture
+
+            // ----------------------------------------------------
+            // DELETE PREVIOUS PROFILE PICTURE
+            // ----------------------------------------------------
+
             if (student.getProfilePicture() != null) {
 
                 Path oldFile =
-                        Paths.get(student.getProfilePicture());
+                        Paths.get(
+                                student.getProfilePicture()
+                        );
 
                 if (Files.exists(oldFile)) {
+
                     Files.delete(oldFile);
                 }
             }
+
+
+            // ----------------------------------------------------
+            // GET FILE EXTENSION
+            // ----------------------------------------------------
 
             String originalFilename =
                     image.getOriginalFilename();
@@ -400,22 +534,42 @@ public class StudentServiceImpl implements StudentService {
             if (originalFilename != null &&
                     originalFilename.contains(".")) {
 
-                extension = originalFilename.substring(
-                        originalFilename.lastIndexOf(".")
-                ).toLowerCase();
+                extension =
+                        originalFilename.substring(
+                                originalFilename.lastIndexOf(".")
+                        ).toLowerCase();
             }
 
+
+            // ----------------------------------------------------
+            // CREATE UNIQUE FILE NAME
+            // ----------------------------------------------------
+
             String filename =
-                    UUID.randomUUID() + extension;
+                    UUID.randomUUID()
+                            + extension;
+
 
             Path targetPath =
-                    uploadDirectory.resolve(filename);
+                    uploadDirectory.resolve(
+                            filename
+                    );
+
+
+            // ----------------------------------------------------
+            // SAVE FILE
+            // ----------------------------------------------------
 
             Files.copy(
                     image.getInputStream(),
                     targetPath,
                     StandardCopyOption.REPLACE_EXISTING
             );
+
+
+            // ----------------------------------------------------
+            // SAVE PATH IN DATABASE
+            // ----------------------------------------------------
 
             student.setProfilePicture(
                     targetPath.toString()
@@ -433,6 +587,90 @@ public class StudentServiceImpl implements StudentService {
             );
         }
     }
+
+
+    // ============================================================
+    // DELETE FACE RECOGNITION FILES
+    // ============================================================
+
+    private void deleteFaceFiles(
+            String registrationNumber) {
+
+        if (registrationNumber == null ||
+                registrationNumber.isBlank()) {
+
+            return;
+        }
+
+
+        String[] files = {
+
+                "face-recognition-api/embeddings/"
+                        + registrationNumber
+                        + ".npy",
+
+                "face-recognition-api/uploads/"
+                        + registrationNumber
+                        + ".jpg"
+        };
+
+
+        for (String filePath : files) {
+
+            try {
+
+                Path path =
+                        Paths.get(filePath);
+
+                Files.deleteIfExists(path);
+
+            } catch (Exception e) {
+
+                // Do not fail database deletion
+                // because of face-file cleanup problem.
+
+                System.err.println(
+                        "Unable to delete face file: "
+                                + filePath
+                );
+            }
+        }
+    }
+
+
+    // ============================================================
+    // DELETE PROFILE PICTURE
+    // ============================================================
+
+    private void deleteProfilePicture(
+            String profilePicture) {
+
+        if (profilePicture == null ||
+                profilePicture.isBlank()) {
+
+            return;
+        }
+
+
+        try {
+
+            Path path =
+                    Paths.get(profilePicture);
+
+            Files.deleteIfExists(path);
+
+        } catch (Exception e) {
+
+            // Do not fail database deletion
+            // because of profile picture cleanup problem.
+
+            System.err.println(
+                    "Unable to delete profile picture: "
+                            + profilePicture
+            );
+        }
+    }
+
 
     // ============================================================
     // MAP ENTITY TO RESPONSE
@@ -485,10 +723,6 @@ public class StudentServiceImpl implements StudentService {
 
                 .email(
                         student.getUser().getEmail()
-                )
-
-                .faceRegistered(
-                        student.getFaceRegistered()
                 )
 
                 .faceRegistered(

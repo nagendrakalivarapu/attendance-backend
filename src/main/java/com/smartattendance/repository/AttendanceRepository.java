@@ -78,4 +78,6 @@ public interface AttendanceRepository
     long countByStatus(AttendanceStatus status);
 
     long count();
+
+    void deleteByStudentId(Long studentId);
 }
