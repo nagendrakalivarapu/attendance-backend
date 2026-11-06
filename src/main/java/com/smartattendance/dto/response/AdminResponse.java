@@ -8,12 +8,8 @@ import lombok.Getter;
 public class AdminResponse {
 
     private Long id;
-
     private String fullName;
-
     private String email;
-
     private String role;
-
     private Boolean enabled;
 }
