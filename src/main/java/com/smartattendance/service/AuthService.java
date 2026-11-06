@@ -10,4 +10,11 @@ public interface AuthService {
     RegisterResponse register(RegisterRequest request);
 
     LoginResponse login(LoginRequest request);
+
+    LoginResponse verifyOtp(
+            String email,
+            String otp
+    );
+
+    void resendOtp(String email);
 }

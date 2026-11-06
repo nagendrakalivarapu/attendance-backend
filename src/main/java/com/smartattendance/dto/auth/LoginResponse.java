@@ -15,4 +15,5 @@ public class LoginResponse {
     private String role;
     private String token;
     private String message;
+    private boolean requiresOtp;
 }

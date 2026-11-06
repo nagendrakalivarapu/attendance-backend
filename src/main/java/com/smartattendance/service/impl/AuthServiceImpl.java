@@ -5,55 +5,50 @@ import com.smartattendance.dto.auth.LoginResponse;
 import com.smartattendance.dto.auth.RegisterRequest;
 import com.smartattendance.dto.auth.RegisterResponse;
 import com.smartattendance.entity.User;
+import com.smartattendance.enums.UserRole;
 import com.smartattendance.repository.UserRepository;
 import com.smartattendance.service.AuthService;
+import com.smartattendance.service.OtpService;
+import com.smartattendance.security.jwt.JwtService;
+import lombok.RequiredArgsConstructor;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-import com.smartattendance.security.jwt.JwtService;
 
 @Service
+@RequiredArgsConstructor
 public class AuthServiceImpl implements AuthService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final AuthenticationManager authenticationManager;
     private final JwtService jwtService;
-
-    public AuthServiceImpl(UserRepository userRepository,
-                           PasswordEncoder passwordEncoder,
-                           AuthenticationManager authenticationManager,
-                           JwtService jwtService) {
-
-        this.userRepository = userRepository;
-        this.passwordEncoder = passwordEncoder;
-        this.authenticationManager = authenticationManager;
-        this.jwtService = jwtService;
-    }
+    private final OtpService otpService;
 
     @Override
     public RegisterResponse register(RegisterRequest request) {
 
-        // Check if email already exists
         if (userRepository.existsByEmail(request.getEmail())) {
             throw new RuntimeException("Email already exists");
         }
 
-        // Create User object
         User user = User.builder()
                 .fullName(request.getFullName())
                 .email(request.getEmail())
-                .password(passwordEncoder.encode(request.getPassword()))
+                .password(
+                        passwordEncoder.encode(
+                                request.getPassword()
+                        )
+                )
                 .role(request.getRole())
                 .enabled(true)
                 .build();
 
-        // Save user
-        User savedUser = userRepository.save(user);
+        User savedUser =
+                userRepository.save(user);
 
-        // Return response
         return RegisterResponse.builder()
                 .id(savedUser.getId())
                 .fullName(savedUser.getFullName())
@@ -73,12 +68,96 @@ public class AuthServiceImpl implements AuthService {
                 )
         );
 
-        User user = userRepository.findByEmail(request.getEmail())
-                .orElseThrow(() -> new RuntimeException("User not found"));
+        User user =
+                userRepository
+                        .findByEmail(request.getEmail())
+                        .orElseThrow(() ->
+                                new RuntimeException(
+                                        "User not found"
+                                )
+                        );
 
-        System.out.println("====================================");
-        System.out.println("Login Email : " + user.getEmail());
-        System.out.println("Database Role : " + user.getRole());
+        if (!Boolean.TRUE.equals(user.getEnabled())) {
+            throw new RuntimeException(
+                    "Account is disabled"
+            );
+        }
+
+        /*
+         * ADMIN LOGIN
+         *
+         * Password is correct, but JWT is NOT
+         * issued yet. OTP must be verified first.
+         */
+        if (user.getRole() == UserRole.ADMIN) {
+
+            otpService.generateAndSendOtp(
+                    user.getEmail()
+            );
+
+            return LoginResponse.builder()
+                    .email(user.getEmail())
+                    .role(user.getRole().name())
+                    .token(null)
+                    .message(
+                            "OTP sent to your registered email."
+                    )
+                    .requiresOtp(true)
+                    .build();
+        }
+
+        /*
+         * STUDENT / TEACHER LOGIN
+         *
+         * Existing password → JWT flow remains unchanged.
+         */
+        UserDetails userDetails =
+                org.springframework.security.core.userdetails.User
+                        .builder()
+                        .username(user.getEmail())
+                        .password(user.getPassword())
+                        .roles(user.getRole().name())
+                        .build();
+
+        String token =
+                jwtService.generateToken(
+                        userDetails
+                );
+
+        return LoginResponse.builder()
+                .email(user.getEmail())
+                .role(user.getRole().name())
+                .token(token)
+                .message("Login Successful")
+                .requiresOtp(false)
+                .build();
+    }
+
+    @Override
+    public LoginResponse verifyOtp(
+            String email,
+            String otp
+    ) {
+
+        otpService.verifyOtp(
+                email,
+                otp
+        );
+
+        User user =
+                userRepository
+                        .findByEmail(email)
+                        .orElseThrow(() ->
+                                new RuntimeException(
+                                        "User not found"
+                                )
+                        );
+
+        if (user.getRole() != UserRole.ADMIN) {
+            throw new RuntimeException(
+                    "OTP verification is only available for administrators."
+            );
+        }
 
         UserDetails userDetails =
                 org.springframework.security.core.userdetails.User
@@ -88,22 +167,23 @@ public class AuthServiceImpl implements AuthService {
                         .roles(user.getRole().name())
                         .build();
 
-        System.out.println("Generated Authorities : "
-                + userDetails.getAuthorities());
-
-        String token = jwtService.generateToken(userDetails);
-
-        System.out.println("Generated JWT : " + token);
-        System.out.println("====================================");
+        String token =
+                jwtService.generateToken(
+                        userDetails
+                );
 
         return LoginResponse.builder()
                 .email(user.getEmail())
                 .role(user.getRole().name())
                 .token(token)
-                .message("Login Successful")
+                .message("Admin login successful.")
+                .requiresOtp(false)
                 .build();
     }
 
+    @Override
+    public void resendOtp(String email) {
 
-
+        otpService.resendOtp(email);
+    }
 }
