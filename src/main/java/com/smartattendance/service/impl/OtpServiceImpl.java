@@ -36,7 +36,7 @@ public class OtpServiceImpl implements OtpService {
     @Override
     public void generateAndSendOtp(String email) {
 
-        validateAdmin(email);
+        validateOtpUser(email);
 
         sendOtp(email);
     }
@@ -44,7 +44,7 @@ public class OtpServiceImpl implements OtpService {
     @Override
     public void resendOtp(String email) {
 
-        validateAdmin(email);
+        validateOtpUser(email);
 
         AdminLoginOtp existingOtp =
                 otpRepository
@@ -210,7 +210,7 @@ public class OtpServiceImpl implements OtpService {
         );
     }
 
-    private void validateAdmin(String email) {
+    private void validateOtpUser(String email) {
 
         if (email == null || email.isBlank()) {
             throw new RuntimeException(
@@ -223,20 +223,24 @@ public class OtpServiceImpl implements OtpService {
                         .findByEmail(email)
                         .orElseThrow(() ->
                                 new RuntimeException(
-                                        "Admin account not found."
+                                        "User account not found."
                                 )
                         );
 
-        if (user.getRole() != UserRole.ADMIN) {
+        if (user.getRole() != UserRole.ADMIN
+                && user.getRole() != UserRole.TEACHER) {
+
             throw new RuntimeException(
-                    "OTP login is available only for administrators."
+                    "OTP login is available only for administrators and teachers."
             );
         }
 
         if (!Boolean.TRUE.equals(user.getEnabled())) {
+
             throw new RuntimeException(
-                    "Admin account is disabled."
+                    "Account is disabled."
             );
         }
     }
+
 }
