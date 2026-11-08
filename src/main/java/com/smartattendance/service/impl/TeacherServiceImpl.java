@@ -12,6 +12,7 @@ import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
@@ -21,20 +22,39 @@ public class TeacherServiceImpl implements TeacherService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
 
+
     @Override
+    @Transactional
     public TeacherResponse createTeacher(TeacherRequest request) {
 
-        // Check Employee ID
-        if (teacherRepository.existsByEmployeeId(request.getEmployeeId())) {
-            throw new RuntimeException("Employee ID already exists.");
+        // 1. Validate password
+        if (request.getPassword() == null
+                || request.getPassword().isBlank()) {
+
+            throw new IllegalArgumentException(
+                    "Teacher password is required."
+            );
         }
 
-        // Check Email
-        if (userRepository.findByEmail(request.getEmail()).isPresent()) {
-            throw new RuntimeException("Email already exists.");
+        // 2. Check employee ID
+        if (teacherRepository.existsByEmployeeId(
+                request.getEmployeeId())) {
+
+            throw new RuntimeException(
+                    "Employee ID already exists."
+            );
         }
 
-        // Create User account
+        // 3. Check email
+        if (userRepository.findByEmail(
+                request.getEmail()).isPresent()) {
+
+            throw new RuntimeException(
+                    "Email already exists."
+            );
+        }
+
+        // 4. Create user account
         User user = User.builder()
                 .fullName(request.getFullName())
                 .email(request.getEmail())
@@ -45,7 +65,7 @@ public class TeacherServiceImpl implements TeacherService {
 
         user = userRepository.save(user);
 
-        // Create Teacher profile
+        // 5. Create teacher profile
         Teacher teacher = Teacher.builder()
                 .employeeId(request.getEmployeeId())
                 .department(request.getDepartment())
@@ -57,8 +77,10 @@ public class TeacherServiceImpl implements TeacherService {
 
         teacher = teacherRepository.save(teacher);
 
+        // 6. Return response
         return mapToResponse(teacher);
     }
+
 
     @Override
     public List<TeacherResponse> getAllTeachers() {

@@ -62,9 +62,12 @@ public class SecurityConfig {
                 // Authorization
                 .authorizeHttpRequests(auth -> auth
 
-                        // Public APIs
+                        // Public authentication endpoints
                         .requestMatchers(
-                                "/api/auth/**"
+                                HttpMethod.POST,
+                                "/api/auth/login",
+                                "/api/auth/verify-otp",
+                                "/api/auth/resend-otp"
                         ).permitAll()
 
                         // Public student profile pictures
@@ -78,13 +81,26 @@ public class SecurityConfig {
                                 "/**"
                         ).permitAll()
 
-                        // Admin-specific APIs
+                        // Admin-only APIs
                         .requestMatchers(
                                 "/api/admin/**"
                         ).hasRole("ADMIN")
 
-                        // Everything else requires authentication
-                        // @PreAuthorize handles specific roles
+                        // Only admins can create student accounts
+                        .requestMatchers(
+                                HttpMethod.POST,
+                                "/api/student",
+                                "/api/student/**"
+                        ).hasRole("ADMIN")
+
+                        // Only admins can create teacher accounts
+                        .requestMatchers(
+                                HttpMethod.POST,
+                                "/api/teacher",
+                                "/api/teacher/**"
+                        ).hasRole("ADMIN")
+
+                        // All remaining APIs require authentication
                         .anyRequest().authenticated()
                 )
                 // JWT filter

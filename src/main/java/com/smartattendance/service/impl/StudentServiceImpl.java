@@ -42,10 +42,21 @@ public class StudentServiceImpl implements StudentService {
     // CREATE STUDENT
     // ============================================================
 
+
     @Override
+    @Transactional
     public StudentResponse createStudent(StudentRequest request) {
 
-        // Check duplicate registration number
+        // 1. Validate password
+        if (request.getPassword() == null
+                || request.getPassword().isBlank()) {
+
+            throw new IllegalArgumentException(
+                    "Student password is required."
+            );
+        }
+
+        // 2. Check duplicate registration number
         if (studentRepository.existsByRegistrationNumber(
                 request.getRegistrationNumber())) {
 
@@ -54,7 +65,7 @@ public class StudentServiceImpl implements StudentService {
             );
         }
 
-        // Check duplicate email
+        // 3. Check duplicate email
         if (userRepository.findByEmail(request.getEmail()).isPresent()) {
 
             throw new RuntimeException(
@@ -62,10 +73,7 @@ public class StudentServiceImpl implements StudentService {
             );
         }
 
-        // ========================================================
-        // CREATE USER ACCOUNT
-        // ========================================================
-
+        // 4. Create user account
         User user = User.builder()
                 .fullName(request.getFullName())
                 .email(request.getEmail())
@@ -76,43 +84,25 @@ public class StudentServiceImpl implements StudentService {
 
         user = userRepository.save(user);
 
-
-        // ========================================================
-        // CREATE STUDENT
-        // ========================================================
-
+        // 5. Create student record
         Student student = Student.builder()
-                .registrationNumber(
-                        request.getRegistrationNumber()
-                )
-                .department(
-                        request.getDepartment()
-                )
-                .semester(
-                        request.getSemester()
-                )
-                .section(
-                        request.getSection()
-                )
-                .phone(
-                        request.getPhone()
-                )
-                .dateOfBirth(
-                        request.getDateOfBirth()
-                )
-                .gender(
-                        request.getGender()
-                )
-                .address(
-                        request.getAddress()
-                )
+                .registrationNumber(request.getRegistrationNumber())
+                .department(request.getDepartment())
+                .semester(request.getSemester())
+                .section(request.getSection())
+                .phone(request.getPhone())
+                .dateOfBirth(request.getDateOfBirth())
+                .gender(request.getGender())
+                .address(request.getAddress())
                 .user(user)
                 .build();
 
         student = studentRepository.save(student);
 
+        // 6. Return response
         return mapToResponse(student);
     }
+
 
 
     // ============================================================

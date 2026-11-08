@@ -29,12 +29,16 @@ public class StudentController {
 
     @PostMapping
     @PreAuthorize("hasRole('ADMIN')")
-    public StudentResponse createStudent(
+    public ResponseEntity<StudentResponse> createStudent(
             @Valid @RequestBody StudentRequest request) {
 
-        return studentService.createStudent(request);
-    }
+        StudentResponse response =
+                studentService.createStudent(request);
 
+        return ResponseEntity
+                .status(HttpStatus.CREATED)
+                .body(response);
+    }
 
     // ============================================================
     // GET ALL STUDENTS
