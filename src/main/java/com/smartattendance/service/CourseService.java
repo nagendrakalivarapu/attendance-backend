@@ -10,15 +10,18 @@ public interface CourseService {
 
     List<CourseResponse> getAllCourses();
 
-    CourseResponse getCourseById(Long id);
+    CourseResponse getCourseById(
+            Long id, String email, boolean isAdmin);
 
     CourseResponse updateCourse(Long id, CourseRequest request);
 
     void deleteCourse(Long id);
 
-    List<CourseResponse> getCoursesByDepartment(String department);
+    List<CourseResponse> getCoursesByDepartment(
+            String department, String email, boolean isAdmin);
 
-    List<CourseResponse> getCoursesBySemester(Integer semester);
+    List<CourseResponse> getCoursesBySemester(
+            Integer semester, String email, boolean isAdmin);
 
     List<CourseResponse> getCoursesByTeacher(Long teacherId);
 

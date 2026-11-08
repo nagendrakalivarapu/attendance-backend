@@ -6,30 +6,24 @@ import java.util.List;
 
 public interface EnrollmentService {
 
-    EnrollmentResponse createEnrollment(
-            EnrollmentRequest request
-    );
+    EnrollmentResponse createEnrollment(EnrollmentRequest request);
 
     List<EnrollmentResponse> getAllEnrollments();
 
-    EnrollmentResponse getEnrollmentById(Long id);
+    EnrollmentResponse getEnrollmentById(
+            Long id, String email, boolean isAdmin);
 
     List<EnrollmentResponse> getEnrollmentsByStudent(
-            Long studentId
-    );
+            Long studentId, String email, boolean isAdmin);
+
+    List<EnrollmentResponse> getMyEnrollments(String email);
+
+    List<EnrollmentResponse> getTeacherEnrollments(String email);
 
     List<EnrollmentResponse> getEnrollmentsByCourse(
-            Long courseId
-    );
+            Long courseId, String email, boolean isAdmin);
 
-    List<EnrollmentResponse> getMyEnrollments(
-            String email
-    );
-
-    EnrollmentResponse updateEnrollmentStatus(
-            Long id,
-            String status
-    );
+    EnrollmentResponse updateEnrollmentStatus(Long id, String status);
 
     void deleteEnrollment(Long id);
 }

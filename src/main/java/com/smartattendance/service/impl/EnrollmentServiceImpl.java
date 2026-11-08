@@ -5,15 +5,19 @@ import com.smartattendance.dto.response.EnrollmentResponse;
 import com.smartattendance.entity.Course;
 import com.smartattendance.entity.Enrollment;
 import com.smartattendance.entity.Student;
+import com.smartattendance.entity.Teacher;
 import com.smartattendance.enums.EnrollmentStatus;
 import com.smartattendance.repository.CourseRepository;
 import com.smartattendance.repository.EnrollmentRepository;
 import com.smartattendance.repository.StudentRepository;
+import com.smartattendance.repository.TeacherRepository;
 import com.smartattendance.service.EnrollmentService;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 @Service
 @RequiredArgsConstructor
@@ -23,55 +27,39 @@ public class EnrollmentServiceImpl implements EnrollmentService {
     private final EnrollmentRepository enrollmentRepository;
     private final StudentRepository studentRepository;
     private final CourseRepository courseRepository;
+    private final TeacherRepository teacherRepository;
 
     @Override
-    public EnrollmentResponse createEnrollment(
-            EnrollmentRequest request) {
+    public EnrollmentResponse createEnrollment(EnrollmentRequest request) {
 
-        // Check if student exists
-        Student student = studentRepository.findById(
-                request.getStudentId()
-        ).orElseThrow(() ->
-                new RuntimeException("Student not found.")
-        );
+        Student student = studentRepository.findById(request.getStudentId())
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Student not found."));
 
-        // Check if course exists
-        Course course = courseRepository.findById(
-                request.getCourseId()
-        ).orElseThrow(() ->
-                new RuntimeException("Course not found.")
-        );
+        Course course = courseRepository.findById(request.getCourseId())
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Course not found."));
 
-        // Prevent duplicate enrollment
-        if (enrollmentRepository
-                .existsByStudentIdAndCourseId(
-                        request.getStudentId(),
-                        request.getCourseId()
-                )) {
-
-            throw new RuntimeException(
-                    "Student is already enrolled in this course."
-            );
+        if (enrollmentRepository.existsByStudentIdAndCourseId(
+                request.getStudentId(), request.getCourseId())) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Student is already enrolled in this course.");
         }
 
         Enrollment enrollment = Enrollment.builder()
                 .student(student)
                 .course(course)
-                .enrollmentDate(
-                        java.time.LocalDate.now()
-                )
+                .enrollmentDate(java.time.LocalDate.now())
                 .status(EnrollmentStatus.ACTIVE)
                 .build();
 
-        enrollment = enrollmentRepository.save(enrollment);
-
-        return mapToResponse(enrollment);
+        return mapToResponse(enrollmentRepository.save(enrollment));
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<EnrollmentResponse> getAllEnrollments() {
-
         return enrollmentRepository.findAll()
                 .stream()
                 .map(this::mapToResponse)
@@ -81,15 +69,13 @@ public class EnrollmentServiceImpl implements EnrollmentService {
     @Override
     @Transactional(readOnly = true)
     public EnrollmentResponse getEnrollmentById(
-            Long id) {
+            Long id, String email, boolean isAdmin) {
 
-        Enrollment enrollment =
-                enrollmentRepository.findById(id)
-                        .orElseThrow(() ->
-                                new RuntimeException(
-                                        "Enrollment not found."
-                                )
-                        );
+        Enrollment enrollment = findEnrollment(id);
+
+        if (!isAdmin) {
+            verifyTeacherOwnsCourse(enrollment.getCourse(), email);
+        }
 
         return mapToResponse(enrollment);
     }
@@ -97,22 +83,37 @@ public class EnrollmentServiceImpl implements EnrollmentService {
     @Override
     @Transactional(readOnly = true)
     public List<EnrollmentResponse> getEnrollmentsByStudent(
-            Long studentId) {
+            Long studentId, String email, boolean isAdmin) {
 
-        return enrollmentRepository
-                .findByStudentId(studentId)
-                .stream()
+        if (!studentRepository.existsById(studentId)) {
+            throw new ResponseStatusException(
+                    HttpStatus.NOT_FOUND, "Student not found.");
+        }
+
+        List<Enrollment> enrollments;
+
+        if (isAdmin) {
+            enrollments = enrollmentRepository.findByStudentId(studentId);
+        } else {
+            Teacher teacher = findTeacherByEmail(email);
+            enrollments = enrollmentRepository
+                    .findByStudentIdAndCourse_Teacher_Id(
+                            studentId, teacher.getId());
+        }
+
+        return enrollments.stream()
                 .map(this::mapToResponse)
                 .toList();
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<EnrollmentResponse> getMyEnrollments(String email) {
 
         Student student = studentRepository.findByUser_Email(email)
-                .orElseThrow(() -> new RuntimeException(
-                        "Student not found for logged-in user."
-                ));
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Student not found for logged-in user."));
 
         return enrollmentRepository.findByStudentId(student.getId())
                 .stream()
@@ -122,11 +123,31 @@ public class EnrollmentServiceImpl implements EnrollmentService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<EnrollmentResponse> getEnrollmentsByCourse(
-            Long courseId) {
+    public List<EnrollmentResponse> getTeacherEnrollments(String email) {
+
+        Teacher teacher = findTeacherByEmail(email);
 
         return enrollmentRepository
-                .findByCourseId(courseId)
+                .findByCourse_Teacher_Id(teacher.getId())
+                .stream()
+                .map(this::mapToResponse)
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<EnrollmentResponse> getEnrollmentsByCourse(
+            Long courseId, String email, boolean isAdmin) {
+
+        Course course = courseRepository.findById(courseId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Course not found."));
+
+        if (!isAdmin) {
+            verifyTeacherOwnsCourse(course, email);
+        }
+
+        return enrollmentRepository.findByCourseId(courseId)
                 .stream()
                 .map(this::mapToResponse)
                 .toList();
@@ -134,93 +155,75 @@ public class EnrollmentServiceImpl implements EnrollmentService {
 
     @Override
     public EnrollmentResponse updateEnrollmentStatus(
-            Long id,
-            String status) {
+            Long id, String status) {
 
-        Enrollment enrollment =
-                enrollmentRepository.findById(id)
-                        .orElseThrow(() ->
-                                new RuntimeException(
-                                        "Enrollment not found."
-                                )
-                        );
+        if (status == null || status.isBlank()) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST, "Enrollment status is required.");
+        }
+
+        Enrollment enrollment = findEnrollment(id);
 
         EnrollmentStatus enrollmentStatus;
 
         try {
-            enrollmentStatus =
-                    EnrollmentStatus.valueOf(
-                            status.toUpperCase()
-                    );
-        } catch (IllegalArgumentException e) {
-            throw new RuntimeException(
-                    "Invalid enrollment status. " +
-                    "Use ACTIVE, COMPLETED or DROPPED."
-            );
+            enrollmentStatus = EnrollmentStatus.valueOf(
+                    status.trim().toUpperCase());
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Invalid status. Use ACTIVE, COMPLETED or DROPPED.");
         }
 
         enrollment.setStatus(enrollmentStatus);
 
-        enrollment =
-                enrollmentRepository.save(enrollment);
-
-        return mapToResponse(enrollment);
+        return mapToResponse(enrollmentRepository.save(enrollment));
     }
 
     @Override
     public void deleteEnrollment(Long id) {
-
-        if (!enrollmentRepository.existsById(id)) {
-
-            throw new RuntimeException(
-                    "Enrollment not found."
-            );
-        }
-
-        enrollmentRepository.deleteById(id);
+        Enrollment enrollment = findEnrollment(id);
+        enrollmentRepository.delete(enrollment);
     }
 
-    private EnrollmentResponse mapToResponse(
-            Enrollment enrollment) {
+    private Enrollment findEnrollment(Long id) {
+        return enrollmentRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Enrollment not found."));
+    }
+
+    private Teacher findTeacherByEmail(String email) {
+        return teacherRepository.findByUser_Email(email)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Teacher not found for logged-in user."));
+    }
+
+    private void verifyTeacherOwnsCourse(Course course, String email) {
+
+        if (course.getTeacher() == null ||
+                !course.getTeacher().getUser().getEmail()
+                        .equalsIgnoreCase(email)) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "You are not assigned to this course.");
+        }
+    }
+
+    private EnrollmentResponse mapToResponse(Enrollment enrollment) {
 
         return EnrollmentResponse.builder()
                 .id(enrollment.getId())
-
-                .studentId(
-                        enrollment.getStudent().getId()
-                )
-
-                .studentName(
-                        enrollment.getStudent()
-                                .getUser()
-                                .getFullName()
-                )
-
-                .registrationNumber(
-                        enrollment.getStudent()
-                                .getRegistrationNumber()
-                )
-
-                .courseId(
-                        enrollment.getCourse().getId()
-                )
-
-                .courseCode(
-                        enrollment.getCourse().getCourseCode()
-                )
-
-                .courseName(
-                        enrollment.getCourse().getCourseName()
-                )
-
-                .enrollmentDate(
-                        enrollment.getEnrollmentDate()
-                )
-
-                .status(
-                        enrollment.getStatus()
-                )
-
+                .studentId(enrollment.getStudent().getId())
+                .studentName(enrollment.getStudent()
+                        .getUser().getFullName())
+                .registrationNumber(enrollment.getStudent()
+                        .getRegistrationNumber())
+                .courseId(enrollment.getCourse().getId())
+                .courseCode(enrollment.getCourse().getCourseCode())
+                .courseName(enrollment.getCourse().getCourseName())
+                .enrollmentDate(enrollment.getEnrollmentDate())
+                .status(enrollment.getStatus())
                 .build();
     }
 }
