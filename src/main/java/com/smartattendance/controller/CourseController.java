@@ -3,15 +3,12 @@ package com.smartattendance.controller;
 import com.smartattendance.dto.request.CourseRequest;
 import com.smartattendance.dto.response.CourseResponse;
 import com.smartattendance.service.CourseService;
-import org.springframework.security.core.Authentication;
-
 import jakarta.validation.Valid;
-import lombok.RequiredArgsConstructor;
-
-import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.web.bind.annotation.*;
-
 import java.util.List;
+import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api/course")

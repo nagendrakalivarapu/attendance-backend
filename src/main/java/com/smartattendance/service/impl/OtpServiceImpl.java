@@ -7,14 +7,13 @@ import com.smartattendance.repository.AdminLoginOtpRepository;
 import com.smartattendance.repository.UserRepository;
 import com.smartattendance.service.EmailService;
 import com.smartattendance.service.OtpService;
+import java.security.SecureRandom;
+import java.time.Duration;
+import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.security.SecureRandom;
-import java.time.Duration;
-import java.time.LocalDateTime;
 
 @Service
 @RequiredArgsConstructor

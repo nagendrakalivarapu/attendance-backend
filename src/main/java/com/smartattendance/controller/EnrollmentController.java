@@ -3,15 +3,12 @@ package com.smartattendance.controller;
 import com.smartattendance.dto.request.EnrollmentRequest;
 import com.smartattendance.dto.response.EnrollmentResponse;
 import com.smartattendance.service.EnrollmentService;
-import org.springframework.security.core.Authentication;
-
 import jakarta.validation.Valid;
-import lombok.RequiredArgsConstructor;
-
-import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.web.bind.annotation.*;
-
 import java.util.List;
+import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api/enrollment")

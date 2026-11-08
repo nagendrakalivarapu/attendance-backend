@@ -16,21 +16,17 @@ import com.smartattendance.repository.AttendanceRepository;
 import com.smartattendance.repository.CourseRepository;
 import com.smartattendance.repository.EnrollmentRepository;
 import com.smartattendance.service.AttendanceEmailService;
-
-import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
-
-import lombok.RequiredArgsConstructor;
-
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.mail.MailException;
-import org.springframework.mail.javamail.JavaMailSender;
-import org.springframework.mail.javamail.MimeMessageHelper;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
+import jakarta.mail.MessagingException;
 import java.util.ArrayList;
 import java.util.List;
+import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.mail.javamail.MimeMessageHelper;
+import org.springframework.mail.MailException;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor

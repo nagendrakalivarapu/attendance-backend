@@ -10,12 +10,10 @@ import com.smartattendance.repository.CourseRepository;
 import com.smartattendance.repository.EnrollmentRepository;
 import com.smartattendance.repository.StudentRepository;
 import com.smartattendance.service.EnrollmentService;
-
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.util.List;
 
 @Service
 @RequiredArgsConstructor

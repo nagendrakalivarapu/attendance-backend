@@ -3,11 +3,11 @@ package com.smartattendance.attendance.entity;
 import com.smartattendance.entity.BaseEntity;
 import com.smartattendance.entity.Course;
 import com.smartattendance.entity.Teacher;
-import jakarta.persistence.*;
-import lombok.*;
 import com.smartattendance.enums.AttendanceSessionStatus;
+import jakarta.persistence.*;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import lombok.*;
 
 @Entity
 @Table(name = "attendance_sessions")

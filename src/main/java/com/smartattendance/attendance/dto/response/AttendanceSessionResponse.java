@@ -1,10 +1,10 @@
 package com.smartattendance.attendance.dto.response;
 
-import lombok.Builder;
-import lombok.Getter;
 import com.smartattendance.enums.AttendanceSessionStatus;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import lombok.Builder;
+import lombok.Getter;
 
 @Getter
 @Builder

@@ -3,11 +3,10 @@ package com.smartattendance.controller;
 import com.smartattendance.dto.response.UserResponse;
 import com.smartattendance.entity.User;
 import com.smartattendance.service.UserService;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
 
 @RestController
 @RequestMapping("/api/user")

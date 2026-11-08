@@ -5,17 +5,14 @@ import com.smartattendance.attendance.dto.response.AttendanceSessionHistoryRespo
 import com.smartattendance.attendance.dto.response.AttendanceSessionResponse;
 import com.smartattendance.attendance.dto.response.AttendanceSessionStudentResponse;
 import com.smartattendance.attendance.service.AttendanceSessionService;
-import java.util.List;
-import org.springframework.security.core.Authentication;
 import jakarta.validation.Valid;
-
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
 
 @RestController
 @RequestMapping("/api/attendance-sessions")

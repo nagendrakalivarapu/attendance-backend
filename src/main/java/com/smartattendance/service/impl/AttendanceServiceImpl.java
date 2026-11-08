@@ -13,15 +13,13 @@ import com.smartattendance.enums.AttendanceStatus;
 import com.smartattendance.repository.*;
 import com.smartattendance.service.AttendanceService;
 import com.smartattendance.service.FaceRecognitionService;
-import lombok.RequiredArgsConstructor;
-
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.multipart.MultipartFile;
-
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 @Service
 @RequiredArgsConstructor

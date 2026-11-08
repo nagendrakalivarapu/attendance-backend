@@ -1,9 +1,8 @@
 package com.smartattendance.repository;
 
 import com.smartattendance.entity.Teacher;
-import org.springframework.data.jpa.repository.JpaRepository;
-
 import java.util.Optional;
+import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface TeacherRepository extends JpaRepository<Teacher, Long> {
 

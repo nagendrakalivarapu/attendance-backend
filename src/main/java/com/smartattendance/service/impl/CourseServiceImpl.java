@@ -4,16 +4,14 @@ import com.smartattendance.dto.request.CourseRequest;
 import com.smartattendance.dto.response.CourseResponse;
 import com.smartattendance.entity.Course;
 import com.smartattendance.entity.Teacher;
+import com.smartattendance.entity.User;
 import com.smartattendance.repository.CourseRepository;
 import com.smartattendance.repository.TeacherRepository;
-import com.smartattendance.service.CourseService;
-import com.smartattendance.entity.User;
 import com.smartattendance.repository.UserRepository;
-
+import com.smartattendance.service.CourseService;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-
-import java.util.List;
 
 @Service
 @RequiredArgsConstructor

@@ -1,14 +1,14 @@
 package com.smartattendance.service.impl;
 
+import com.smartattendance.dto.auth.LoginRequest;
+import com.smartattendance.dto.auth.LoginResponse;
 import com.smartattendance.entity.User;
 import com.smartattendance.repository.UserRepository;
 import com.smartattendance.service.UserService;
-import org.springframework.stereotype.Service;
-import com.smartattendance.dto.auth.LoginRequest;
-import com.smartattendance.dto.auth.LoginResponse;
+import java.util.List;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import java.util.List;
+import org.springframework.stereotype.Service;
 
 @Service
 public class UserServiceImpl implements UserService {

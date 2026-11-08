@@ -3,10 +3,9 @@ package com.smartattendance.entity;
 import com.smartattendance.attendance.entity.AttendanceSession;
 import com.smartattendance.enums.AttendanceStatus;
 import jakarta.persistence.*;
-import lombok.*;
-
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import lombok.*;
 
 @Entity
 @Table(

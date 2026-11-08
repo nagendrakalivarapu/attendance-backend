@@ -2,7 +2,6 @@ package com.smartattendance.service;
 
 import com.smartattendance.dto.request.AdminRequest;
 import com.smartattendance.dto.response.AdminResponse;
-
 import java.util.List;
 
 public interface AdminService {

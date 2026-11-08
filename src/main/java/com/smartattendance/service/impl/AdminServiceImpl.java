@@ -7,14 +7,11 @@ import com.smartattendance.enums.UserRole;
 import com.smartattendance.repository.UserRepository;
 import com.smartattendance.service.AdminService;
 import com.smartattendance.service.PrimaryAdminService;
-
+import java.util.List;
 import lombok.RequiredArgsConstructor;
-
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.util.List;
 
 @Service
 @RequiredArgsConstructor

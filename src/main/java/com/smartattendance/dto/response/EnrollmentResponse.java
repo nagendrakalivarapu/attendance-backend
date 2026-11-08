@@ -1,9 +1,8 @@
 package com.smartattendance.dto.response;
 
 import com.smartattendance.enums.EnrollmentStatus;
-import lombok.*;
-
 import java.time.LocalDate;
+import lombok.*;
 
 @Data
 @Builder

@@ -4,15 +4,11 @@ import com.smartattendance.dto.request.AdminRequest;
 import com.smartattendance.dto.response.AdminResponse;
 import com.smartattendance.service.AdminService;
 import com.smartattendance.service.PrimaryAdminService;
-
 import jakarta.validation.Valid;
-
+import java.util.List;
 import lombok.RequiredArgsConstructor;
-
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
 
 @RestController
 @RequestMapping("/api/admin")

@@ -6,33 +6,27 @@ import com.smartattendance.attendance.dto.response.AttendanceSessionResponse;
 import com.smartattendance.attendance.dto.response.AttendanceSessionStudentResponse;
 import com.smartattendance.attendance.entity.AttendanceSession;
 import com.smartattendance.attendance.repository.AttendanceSessionRepository;
-
 import com.smartattendance.entity.Attendance;
 import com.smartattendance.entity.Course;
 import com.smartattendance.entity.Enrollment;
 import com.smartattendance.entity.Student;
 import com.smartattendance.entity.Teacher;
-
 import com.smartattendance.enums.AttendanceSessionStatus;
 import com.smartattendance.enums.AttendanceStatus;
-
 import com.smartattendance.repository.AttendanceRepository;
 import com.smartattendance.repository.CourseRepository;
 import com.smartattendance.repository.EnrollmentRepository;
 import com.smartattendance.repository.StudentRepository;
 import com.smartattendance.repository.TeacherRepository;
-
-import lombok.RequiredArgsConstructor;
-
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import lombok.RequiredArgsConstructor;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor

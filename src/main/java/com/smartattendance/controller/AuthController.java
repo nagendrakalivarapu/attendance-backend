@@ -8,12 +8,11 @@ import com.smartattendance.dto.auth.ResendOtpRequest;
 import com.smartattendance.dto.auth.VerifyOtpRequest;
 import com.smartattendance.service.AuthService;
 import jakarta.validation.Valid;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.Map;
 
 @RestController
 @RequestMapping("/api/auth")

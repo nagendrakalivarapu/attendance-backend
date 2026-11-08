@@ -2,10 +2,9 @@ package com.smartattendance.repository;
 
 import com.smartattendance.entity.Attendance;
 import com.smartattendance.enums.AttendanceStatus;
-import org.springframework.data.jpa.repository.JpaRepository;
-
 import java.time.LocalDate;
 import java.util.List;
+import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface AttendanceRepository
         extends JpaRepository<Attendance, Long> {

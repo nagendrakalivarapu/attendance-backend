@@ -2,7 +2,6 @@ package com.smartattendance.service;
 
 import com.smartattendance.dto.request.EnrollmentRequest;
 import com.smartattendance.dto.response.EnrollmentResponse;
-
 import java.util.List;
 
 public interface EnrollmentService {

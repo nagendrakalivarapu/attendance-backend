@@ -2,7 +2,6 @@ package com.smartattendance.service;
 
 import com.smartattendance.dto.request.CourseRequest;
 import com.smartattendance.dto.response.CourseResponse;
-
 import java.util.List;
 
 public interface CourseService {

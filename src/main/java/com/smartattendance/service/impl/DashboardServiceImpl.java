@@ -12,10 +12,9 @@ import com.smartattendance.repository.EnrollmentRepository;
 import com.smartattendance.repository.StudentRepository;
 import com.smartattendance.repository.TeacherRepository;
 import com.smartattendance.service.DashboardService;
+import java.time.LocalDate;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-
-import java.time.LocalDate;
 
 @Service
 @RequiredArgsConstructor
