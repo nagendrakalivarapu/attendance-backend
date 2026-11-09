@@ -11,8 +11,6 @@ public class StudentCourseAttendanceResponse {
 
     private String studentName;
 
-    private String registrationNumber;
-
     private Long courseId;
 
     private String courseCode;

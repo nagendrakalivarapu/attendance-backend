@@ -9,7 +9,9 @@ import com.smartattendance.repository.UserRepository;
 import com.smartattendance.security.jwt.JwtService;
 import com.smartattendance.service.AuthService;
 import com.smartattendance.service.OtpService;
+
 import lombok.RequiredArgsConstructor;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -31,6 +33,7 @@ public class AuthServiceImpl implements AuthService {
     public LoginResponse login(LoginRequest request) {
 
         // Authenticate email and password.
+        // Disabled accounts are rejected by CustomUserDetailsService.
         authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(
                         request.getEmail(),
@@ -38,15 +41,10 @@ public class AuthServiceImpl implements AuthService {
                 )
         );
 
-        User user = userRepository.findByEmail(request.getEmail())
-                .orElseThrow(() ->
-                        new RuntimeException("Invalid credentials")
-                );
+        User user = findUser(request.getEmail());
 
-        // Reject disabled accounts.
-        if (!Boolean.TRUE.equals(user.getEnabled())) {
-            throw new RuntimeException("Account is disabled");
-        }
+        // Additional account-status verification.
+        ensureAccountEnabled(user);
 
         // ADMIN and TEACHER require OTP.
         if (user.getRole() == UserRole.ADMIN
@@ -65,12 +63,15 @@ public class AuthServiceImpl implements AuthService {
 
         // Only STUDENT accounts can log in without OTP.
         if (user.getRole() != UserRole.STUDENT) {
-            throw new RuntimeException("Unauthorized account role");
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "Unauthorized account role."
+            );
         }
 
-        UserDetails userDetails = buildUserDetails(user);
-
-        String token = jwtService.generateToken(userDetails);
+        String token = jwtService.generateToken(
+                buildUserDetails(user)
+        );
 
         return LoginResponse.builder()
                 .email(user.getEmail())
@@ -85,33 +86,26 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public LoginResponse verifyOtp(String email, String otp) {
 
-        // Load user before attempting OTP verification.
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() ->
-                        new RuntimeException("Invalid OTP or account")
-                );
+        User user = findUser(email);
 
         // Only ADMIN and TEACHER can use OTP login.
         if (user.getRole() != UserRole.ADMIN
                 && user.getRole() != UserRole.TEACHER) {
-            throw new RuntimeException("Invalid OTP or account");
-        }
 
-        // Reject disabled accounts before consuming the OTP.
-        if (!Boolean.TRUE.equals(user.getEnabled())) {
             throw new ResponseStatusException(
-                    HttpStatus.FORBIDDEN,
-                    "Account is disabled"
+                    HttpStatus.UNAUTHORIZED,
+                    "Invalid OTP or account."
             );
         }
 
-        // Verify OTP only after account checks.
-        otpService.verifyOtp(email, otp);
+        ensureAccountEnabled(user);
 
-        // Generate JWT after successful OTP verification.
-        UserDetails userDetails = buildUserDetails(user);
+        // Verify OTP before generating JWT.
+        otpService.verifyOtp(user.getEmail(), otp);
 
-        String token = jwtService.generateToken(userDetails);
+        String token = jwtService.generateToken(
+                buildUserDetails(user)
+        );
 
         String successMessage =
                 user.getRole() == UserRole.ADMIN
@@ -130,7 +124,46 @@ public class AuthServiceImpl implements AuthService {
     // RESEND OTP
     @Override
     public void resendOtp(String email) {
-        otpService.resendOtp(email);
+
+        User user = findUser(email);
+
+        // Only enabled ADMIN and TEACHER accounts can resend OTP.
+        if (user.getRole() != UserRole.ADMIN
+                && user.getRole() != UserRole.TEACHER) {
+
+            throw new ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED,
+                    "Unable to process OTP request."
+            );
+        }
+
+        ensureAccountEnabled(user);
+
+        otpService.resendOtp(user.getEmail());
+    }
+
+    // FIND USER
+    private User findUser(String email) {
+
+        return userRepository.findByEmail(email)
+                .orElseThrow(() ->
+                        new ResponseStatusException(
+                                HttpStatus.UNAUTHORIZED,
+                                "Invalid credentials."
+                        )
+                );
+    }
+
+    // CHECK ACCOUNT STATUS
+    private void ensureAccountEnabled(User user) {
+
+        if (!Boolean.TRUE.equals(user.getEnabled())) {
+
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "Account is disabled."
+            );
+        }
     }
 
     // BUILD USER DETAILS
@@ -140,6 +173,7 @@ public class AuthServiceImpl implements AuthService {
                 .withUsername(user.getEmail())
                 .password(user.getPassword())
                 .roles(user.getRole().name())
+                .disabled(!Boolean.TRUE.equals(user.getEnabled()))
                 .build();
     }
 }

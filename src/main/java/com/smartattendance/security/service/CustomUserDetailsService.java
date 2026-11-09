@@ -1,18 +1,22 @@
+
 package com.smartattendance.security.service;
 
 import com.smartattendance.entity.User;
 import com.smartattendance.repository.UserRepository;
-import org.springframework.security.core.userdetails.*;
+
+import lombok.RequiredArgsConstructor;
+
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
+
 import org.springframework.stereotype.Service;
 
 @Service
+@RequiredArgsConstructor
 public class CustomUserDetailsService implements UserDetailsService {
 
     private final UserRepository userRepository;
-
-    public CustomUserDetailsService(UserRepository userRepository) {
-        this.userRepository = userRepository;
-    }
 
     @Override
     public UserDetails loadUserByUsername(String email)
@@ -20,13 +24,17 @@ public class CustomUserDetailsService implements UserDetailsService {
 
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() ->
-                        new UsernameNotFoundException("User not found"));
+                        new UsernameNotFoundException("User not found")
+                );
 
         return org.springframework.security.core.userdetails.User
-                .builder()
-                .username(user.getEmail())
+                .withUsername(user.getEmail())
                 .password(user.getPassword())
                 .roles(user.getRole().name())
+
+                // Respect account enabled status from database.
+                .disabled(!Boolean.TRUE.equals(user.getEnabled()))
+
                 .build();
     }
 }

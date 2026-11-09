@@ -1,9 +1,11 @@
 package com.smartattendance.repository;
 
 import com.smartattendance.entity.Enrollment;
+import com.smartattendance.enums.EnrollmentStatus;
+import org.springframework.data.jpa.repository.JpaRepository;
+
 import java.util.List;
 import java.util.Optional;
-import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface EnrollmentRepository extends JpaRepository<Enrollment, Long> {
 
@@ -35,4 +37,22 @@ public interface EnrollmentRepository extends JpaRepository<Enrollment, Long> {
     long countByCourseId(Long courseId);
 
     void deleteByStudentId(Long studentId);
+
+    boolean existsByCourseId(Long courseId);
+
+    boolean existsByStudentIdAndCourseIdAndStatus(
+            Long studentId,
+            Long courseId,
+            EnrollmentStatus status
+    );
+
+    List<Enrollment> findByCourseIdAndStatus(
+            Long courseId,
+            EnrollmentStatus status
+    );
+
+    long countByCourseIdAndStatus(
+            Long courseId,
+            EnrollmentStatus status
+    );
 }

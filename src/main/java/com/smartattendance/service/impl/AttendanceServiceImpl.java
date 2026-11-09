@@ -8,6 +8,7 @@ import com.smartattendance.dto.response.*;
 import com.smartattendance.entity.*;
 import com.smartattendance.enums.AttendanceSessionStatus;
 import com.smartattendance.enums.AttendanceStatus;
+import com.smartattendance.enums.EnrollmentStatus;
 import com.smartattendance.repository.*;
 import com.smartattendance.service.AttendanceService;
 import com.smartattendance.service.FaceRecognitionService;
@@ -195,6 +196,7 @@ public class AttendanceServiceImpl implements AttendanceService {
                 .findByStudentId(studentId)
                 .stream()
                 .anyMatch(enrollment ->
+                        enrollment.getStatus() == EnrollmentStatus.ACTIVE &&
                         enrollment.getCourse() != null &&
                         enrollment.getCourse().getTeacher() != null &&
                         enrollment.getCourse().getTeacher()
@@ -259,15 +261,16 @@ public class AttendanceServiceImpl implements AttendanceService {
         }
 
         boolean enrolled =
-                enrollmentRepository.existsByStudentIdAndCourseId(
+                enrollmentRepository.existsByStudentIdAndCourseIdAndStatus(
                         student.getId(),
-                        course.getId()
+                        course.getId(),
+                        EnrollmentStatus.ACTIVE
                 );
 
         if (!enrolled) {
             throw new ResponseStatusException(
                     HttpStatus.FORBIDDEN,
-                    "Student is not enrolled in this course."
+                    "Student is not actively enrolled in this course."
             );
         }
 
@@ -314,6 +317,10 @@ public class AttendanceServiceImpl implements AttendanceService {
                 new ArrayList<>(
                         enrollmentRepository.findByStudentId(studentId)
                 );
+
+        enrollments.removeIf(enrollment ->
+                enrollment.getStatus() != EnrollmentStatus.ACTIVE
+        );
 
         verifyStudentOrTeacherAccess(
                 studentId,
@@ -430,6 +437,10 @@ public class AttendanceServiceImpl implements AttendanceService {
                         enrollmentRepository.findByStudentId(studentId)
                 );
 
+        enrollments.removeIf(enrollment ->
+                enrollment.getStatus() != EnrollmentStatus.ACTIVE
+        );
+
         verifyStudentOrTeacherAccess(
                 studentId,
                 email,
@@ -452,9 +463,9 @@ public class AttendanceServiceImpl implements AttendanceService {
             Long courseId = course.getId();
 
             long totalSessions =
-                    attendanceRepository.countByStudentIdAndCourseId(
-                            studentId,
-                            courseId
+                    attendanceSessionRepository.countByCourseIdAndStatus(
+                            courseId,
+                            AttendanceSessionStatus.CLOSED
                     );
 
             long presentCount =
@@ -530,10 +541,10 @@ public class AttendanceServiceImpl implements AttendanceService {
 
         return records.stream()
                 .filter(record ->
-                        record.getCourse() != null &&
-                        record.getCourse().getTeacher() != null &&
-                        record.getCourse().getTeacher()
-                                .getId().equals(teacher.getId()))
+                        record.getSession() != null &&
+                        record.getSession().getTeacher() != null &&
+                        record.getSession().getTeacher().getId()
+                                .equals(teacher.getId()))
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }
@@ -582,7 +593,10 @@ public class AttendanceServiceImpl implements AttendanceService {
         Course course = findCourse(courseId);
 
         List<Enrollment> enrollments =
-                enrollmentRepository.findByCourseId(courseId);
+                enrollmentRepository.findByCourseIdAndStatus(
+                        courseId,
+                        EnrollmentStatus.ACTIVE
+                );
 
         long totalSessions =
                 attendanceSessionRepository.countByCourseIdAndStatus(
@@ -671,7 +685,10 @@ public class AttendanceServiceImpl implements AttendanceService {
         Course course = findCourse(courseId);
 
         List<Enrollment> enrollments =
-                enrollmentRepository.findByCourseId(courseId);
+                enrollmentRepository.findByCourseIdAndStatus(
+                        courseId,
+                        EnrollmentStatus.ACTIVE
+                );
 
         long totalSessions =
                 attendanceSessionRepository.countByCourseIdAndStatus(
@@ -717,7 +734,6 @@ public class AttendanceServiceImpl implements AttendanceService {
             response.add(StudentCourseAttendanceResponse.builder()
                     .studentId(studentId)
                     .studentName(student.getUser().getFullName())
-                    .registrationNumber(student.getRegistrationNumber())
                     .courseId(course.getId())
                     .courseCode(course.getCourseCode())
                     .courseName(course.getCourseName())
@@ -794,7 +810,10 @@ public class AttendanceServiceImpl implements AttendanceService {
         Course course = findCourse(courseId);
 
         long totalStudents =
-                enrollmentRepository.countByCourseId(courseId);
+                enrollmentRepository.countByCourseIdAndStatus(
+                        courseId,
+                        EnrollmentStatus.ACTIVE
+                );
 
         long totalSessions =
                 attendanceSessionRepository.countByCourseIdAndStatus(
@@ -876,10 +895,10 @@ public class AttendanceServiceImpl implements AttendanceService {
 
         return records.stream()
                 .filter(record ->
-                        record.getCourse() != null &&
-                        record.getCourse().getTeacher() != null &&
-                        record.getCourse().getTeacher()
-                                .getId().equals(teacher.getId()))
+                        record.getSession() != null &&
+                        record.getSession().getTeacher() != null &&
+                        record.getSession().getTeacher().getId()
+                                .equals(teacher.getId()))
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }
@@ -1032,15 +1051,16 @@ public class AttendanceServiceImpl implements AttendanceService {
         }
 
         boolean enrolled =
-                enrollmentRepository.existsByStudentIdAndCourseId(
+                enrollmentRepository.existsByStudentIdAndCourseIdAndStatus(
                         loggedInStudent.getId(),
-                        course.getId()
+                        session.getCourse().getId(),
+                        EnrollmentStatus.ACTIVE
                 );
 
         if (!enrolled) {
             throw new ResponseStatusException(
                     HttpStatus.FORBIDDEN,
-                    "Student is not enrolled in this course."
+                    "Student is not actively enrolled in this course."
             );
         }
 
@@ -1125,21 +1145,28 @@ public class AttendanceServiceImpl implements AttendanceService {
 
     private AttendanceResponse mapToResponse(Attendance attendance) {
 
+        String studentName = "Unknown student";
+        if (attendance.getStudent() != null &&
+                attendance.getStudent().getUser() != null &&
+                attendance.getStudent().getUser().getFullName() != null) {
+            studentName = attendance.getStudent().getUser().getFullName();
+        }
+
+        String courseName = "Unknown course";
+        if (attendance.getCourse() != null &&
+                attendance.getCourse().getCourseName() != null) {
+            courseName = attendance.getCourse().getCourseName();
+        }
+
+        Long sessionId = attendance.getSession() != null
+                ? attendance.getSession().getId()
+                : null;
+
         return AttendanceResponse.builder()
                 .id(attendance.getId())
-                .studentName(
-                        attendance.getStudent()
-                                .getUser()
-                                .getFullName()
-                )
-                .courseName(
-                        attendance.getCourse()
-                                .getCourseName()
-                )
-                .sessionId(
-                        attendance.getSession()
-                                .getId()
-                )
+                .studentName(studentName)
+                .courseName(courseName)
+                .sessionId(sessionId)
                 .attendanceDate(attendance.getAttendanceDate())
                 .status(attendance.getStatus())
                 .build();

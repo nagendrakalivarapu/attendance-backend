@@ -1,9 +1,13 @@
+
 package com.smartattendance.config;
 
 import com.smartattendance.entity.User;
 import com.smartattendance.enums.UserRole;
 import com.smartattendance.repository.UserRepository;
+
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -11,6 +15,7 @@ import org.springframework.stereotype.Component;
 
 @Component
 @RequiredArgsConstructor
+@Slf4j
 public class AdminDataInitializer implements CommandLineRunner {
 
     private final UserRepository userRepository;
@@ -28,92 +33,44 @@ public class AdminDataInitializer implements CommandLineRunner {
     @Override
     public void run(String... args) {
 
-        User admin = userRepository
-                .findByEmail(adminEmail)
-                .orElse(null);
+        validateConfiguration();
 
-        // --------------------------------------------------------
-        // CREATE PRIMARY ADMIN IF IT DOES NOT EXIST
-        // --------------------------------------------------------
-
-        if (admin == null) {
-
-            admin = User.builder()
-                    .fullName(adminName)
-                    .email(adminEmail)
-                    .password(
-                            passwordEncoder.encode(adminPassword)
-                    )
-                    .role(UserRole.ADMIN)
-                    .enabled(true)
-                    .build();
-
-            userRepository.save(admin);
-
-            System.out.println(
-                    "=================================================="
-            );
-            System.out.println(
-                    "PRIMARY ADMIN CREATED"
-            );
-            System.out.println(
-                    "Email: " + adminEmail
-            );
-            System.out.println(
-                    "=================================================="
-            );
-
+        // Never modify an existing account during application startup.
+        if (userRepository.existsByEmail(adminEmail)) {
+            log.info("Configured initial administrator already exists.");
             return;
         }
 
-        // --------------------------------------------------------
-        // ENSURE PRIMARY ADMIN REMAINS AN ADMIN
-        // --------------------------------------------------------
+        User admin = User.builder()
+                .fullName(adminName.trim())
+                .email(adminEmail.trim())
+                .password(passwordEncoder.encode(adminPassword))
+                .role(UserRole.ADMIN)
+                .enabled(true)
+                .build();
 
-        boolean changed = false;
+        userRepository.save(admin);
 
-        if (!adminName.equals(admin.getFullName())) {
+        log.info("Initial administrator account created successfully.");
+    }
 
-            admin.setFullName(adminName);
-            changed = true;
-        }
+    private void validateConfiguration() {
 
-        if (admin.getRole() != UserRole.ADMIN) {
-
-            admin.setRole(UserRole.ADMIN);
-            changed = true;
-        }
-
-        if (!Boolean.TRUE.equals(admin.getEnabled())) {
-
-            admin.setEnabled(true);
-            changed = true;
-        }
-
-        // Update password when application.properties changes
-        if (!passwordEncoder.matches(
-                adminPassword,
-                admin.getPassword())) {
-
-            admin.setPassword(
-                    passwordEncoder.encode(adminPassword)
+        if (adminName == null || adminName.isBlank()) {
+            throw new IllegalStateException(
+                    "Admin name configuration is missing."
             );
-
-            changed = true;
         }
 
-        if (changed) {
-
-            userRepository.save(admin);
-
-            System.out.println(
-                    "PRIMARY ADMIN CONFIGURATION UPDATED"
+        if (adminEmail == null || adminEmail.isBlank()) {
+            throw new IllegalStateException(
+                    "Admin email configuration is missing."
             );
+        }
 
-        } else {
-
-            System.out.println(
-                    "PRIMARY ADMIN ALREADY CONFIGURED"
+        if (adminPassword == null || adminPassword.length() < 12) {
+            throw new IllegalStateException(
+                    "Initial admin password must contain at least 12 characters."
             );
         }
     }

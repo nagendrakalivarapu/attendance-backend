@@ -13,8 +13,10 @@ import com.smartattendance.service.OtpService;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.Locale;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -22,12 +24,16 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 @Transactional
 public class OtpServiceImpl implements OtpService {
 
     private static final int OTP_EXPIRY_MINUTES = 5;
     private static final int MAX_ATTEMPTS = 5;
+    private static final int MAX_RESENDS = 3;
+
     private static final int RESEND_COOLDOWN_SECONDS = 60;
+    private static final int RATE_LIMIT_WINDOW_MINUTES = 15;
 
     private final AdminLoginOtpRepository otpRepository;
     private final UserRepository userRepository;
@@ -36,217 +42,349 @@ public class OtpServiceImpl implements OtpService {
 
     private final SecureRandom secureRandom = new SecureRandom();
 
-    // =========================================================
+    // =====================================================
     // GENERATE OTP
-    // =========================================================
+    // =====================================================
 
     @Override
     public void generateAndSendOtp(String email) {
 
+        email = normalizeEmail(email);
+
         validateOtpUser(email);
 
-        sendOtp(email);
+        issueOtp(email);
     }
 
-    // =========================================================
+    // =====================================================
     // RESEND OTP
-    // =========================================================
+    // =====================================================
 
     @Override
     public void resendOtp(String email) {
 
+        email = normalizeEmail(email);
+
         validateOtpUser(email);
 
-        AdminLoginOtp existingOtp =
-                otpRepository
-                        .findTopByEmailOrderByCreatedAtDesc(email)
-                        .orElse(null);
+        AdminLoginOtp record = otpRepository
+                .findByEmailForUpdate(email)
+                .orElseThrow(() ->
+                        new OtpVerificationException(
+                                "OTP not found. Please login again."
+                        )
+                );
 
-        if (existingOtp != null) {
+        LocalDateTime now = LocalDateTime.now();
 
-            LocalDateTime now = LocalDateTime.now();
-
-            LocalDateTime lastSentAt =
-                    existingOtp.getLastSentAt();
-
-            if (lastSentAt != null) {
-
-                long secondsSinceLastSend =
-                        Duration.between(
-                                lastSentAt,
-                                now
-                        ).getSeconds();
-
-                if (secondsSinceLastSend
-                        < RESEND_COOLDOWN_SECONDS) {
-
-                    long remaining =
-                            RESEND_COOLDOWN_SECONDS
-                                    - secondsSinceLastSend;
-
-                    throw new OtpVerificationException(
-                            "Please wait " + remaining
-                                    + " seconds before requesting another OTP."
-                    );
-                }
-            }
+        if (Boolean.TRUE.equals(record.getVerified())) {
+            throw new OtpVerificationException(
+                    "OTP has already been used. Please login again."
+            );
         }
 
-        sendOtp(email);
+        refreshRateLimitWindows(record, now);
+
+        checkVerificationAttempts(record);
+
+        checkResendCooldown(record, now);
+
+        checkResendLimit(record);
+
+        record.setResendCount(record.getResendCount() + 1);
+
+        sendNewOtp(record, now);
     }
 
-    // =========================================================
+    // =====================================================
     // VERIFY OTP
-    // =========================================================
+    // =====================================================
 
     @Override
     @Transactional(noRollbackFor = OtpVerificationException.class)
     public boolean verifyOtp(String email, String otp) {
 
-        if (email == null || email.isBlank()) {
-            throw new OtpVerificationException(
-                    "Email is required."
-            );
-        }
+        email = normalizeEmail(email);
 
         if (otp == null || !otp.matches("\\d{6}")) {
-            throw new OtpVerificationException(
-                    "Invalid OTP."
-            );
+            throw new OtpVerificationException("Invalid OTP.");
         }
 
-        // Fetch OTP with a pessimistic database lock.
-        AdminLoginOtp otpRecord =
-                otpRepository
-                        .findLatestByEmailForUpdate(email)
-                        .orElseThrow(() ->
-                                new OtpVerificationException(
-                                        "OTP not found. Please request a new OTP."
-                                )
-                        );
+        AdminLoginOtp record = otpRepository
+                .findByEmailForUpdate(email)
+                .orElseThrow(() ->
+                        new OtpVerificationException(
+                                "OTP not found. Please request a new OTP."
+                        )
+                );
 
         LocalDateTime now = LocalDateTime.now();
 
-        // Prevent OTP reuse.
-        if (Boolean.TRUE.equals(otpRecord.getVerified())) {
-
+        if (Boolean.TRUE.equals(record.getVerified())) {
             throw new OtpVerificationException(
                     "OTP has already been used."
             );
         }
 
-        // Check expiry.
-        if (otpRecord.getExpiresAt() == null
-                || !otpRecord.getExpiresAt().isAfter(now)) {
+        if (record.getExpiresAt() == null
+                || !record.getExpiresAt().isAfter(now)) {
 
             throw new OtpVerificationException(
                     "OTP has expired. Please request a new OTP."
             );
         }
 
-        int attempts = otpRecord.getAttempts() == null
-                ? 0
-                : otpRecord.getAttempts();
+        refreshRateLimitWindows(record, now);
 
-        // Block after maximum attempts.
-        if (attempts >= MAX_ATTEMPTS) {
+        checkVerificationAttempts(record);
 
-            throw new OtpVerificationException(
-                    "Maximum OTP attempts exceeded. Please request a new OTP."
-            );
-        }
-
-        // Compare submitted OTP with stored password hash.
         if (!passwordEncoder.matches(
                 otp,
-                otpRecord.getOtpHash()
+                record.getOtpHash()
         )) {
 
-            // Increment and persist failed attempt.
-            attempts++;
+            record.setAttempts(record.getAttempts() + 1);
 
-            otpRecord.setAttempts(attempts);
+            otpRepository.saveAndFlush(record);
 
-            otpRepository.saveAndFlush(otpRecord);
-
-            int remaining = MAX_ATTEMPTS - attempts;
-
-            if (remaining <= 0) {
-
-                throw new OtpVerificationException(
-                        "Maximum OTP attempts exceeded. Please request a new OTP."
-                );
-            }
+            int remaining =
+                    MAX_ATTEMPTS - record.getAttempts();
 
             throw new OtpVerificationException(
-                    "Invalid OTP. "
-                            + remaining
-                            + " attempts remaining."
+                    remaining > 0
+                            ? "Invalid OTP. " + remaining
+                                + " attempts remaining."
+                            : "Maximum OTP attempts exceeded."
             );
         }
 
         // Mark OTP as used.
-        otpRecord.setVerified(true);
+        record.setVerified(true);
 
-        otpRepository.saveAndFlush(otpRecord);
+        otpRepository.saveAndFlush(record);
 
         return true;
     }
 
-    // =========================================================
-    // SEND OTP
-    // =========================================================
+    // =====================================================
+    // ISSUE OTP
+    // =====================================================
 
-    private void sendOtp(String email) {
-
-        // Remove previous OTP records.
-        otpRepository.deleteByEmail(email);
-
-        String otp = generateOtp();
+    private void issueOtp(String email) {
 
         LocalDateTime now = LocalDateTime.now();
 
-        AdminLoginOtp otpRecord =
-                AdminLoginOtp.builder()
-                        .email(email)
-                        .otpHash(
-                                passwordEncoder.encode(otp)
-                        )
-                        .expiresAt(
-                                now.plusMinutes(
-                                        OTP_EXPIRY_MINUTES
-                                )
-                        )
-                        .attempts(0)
-                        .verified(false)
-                        .lastSentAt(now)
-                        .build();
+        AdminLoginOtp record = otpRepository
+                .findByEmailForUpdate(email)
+                .orElse(null);
 
-        otpRepository.saveAndFlush(otpRecord);
+        if (record == null) {
 
-        // Send OTP to registered email.
+            record = AdminLoginOtp.builder()
+                    .email(email)
+                    .otpHash("")
+                    .expiresAt(now)
+                    .attempts(0)
+                    .verified(false)
+                    .lastSentAt(now)
+                    .resendCount(0)
+                    .resendWindowStartedAt(now)
+                    .attemptWindowStartedAt(now)
+                    .build();
+
+            sendNewOtp(record, now);
+
+            return;
+        }
+
+        if (Boolean.TRUE.equals(record.getVerified())) {
+
+            // A new authenticated login starts a new challenge.
+            record.setAttempts(0);
+            record.setResendCount(0);
+            record.setAttemptWindowStartedAt(now);
+            record.setResendWindowStartedAt(now);
+
+            sendNewOtp(record, now);
+
+            return;
+        }
+
+        refreshRateLimitWindows(record, now);
+
+        checkVerificationAttempts(record);
+
+        checkResendCooldown(record, now);
+
+        checkResendLimit(record);
+
+        record.setResendCount(record.getResendCount() + 1);
+
+        sendNewOtp(record, now);
+    }
+
+    // =====================================================
+    // SEND NEW OTP
+    // =====================================================
+
+    private void sendNewOtp(
+            AdminLoginOtp record,
+            LocalDateTime now
+    ) {
+
+        String otp = generateOtp();
+
+        record.setOtpHash(
+                passwordEncoder.encode(otp)
+        );
+
+        record.setExpiresAt(
+                now.plusMinutes(OTP_EXPIRY_MINUTES)
+        );
+
+        record.setLastSentAt(now);
+
+        if (record.getAttempts() == null) {
+            record.setAttempts(0);
+        }
+
+        if (record.getResendCount() == null) {
+            record.setResendCount(0);
+        }
+
+        if (record.getAttemptWindowStartedAt() == null) {
+            record.setAttemptWindowStartedAt(now);
+        }
+
+        if (record.getResendWindowStartedAt() == null) {
+            record.setResendWindowStartedAt(now);
+        }
+
+        record.setVerified(false);
+
+        // Save before email delivery.
+        otpRepository.saveAndFlush(record);
+
         emailService.sendAdminLoginOtp(
-                email,
+                record.getEmail(),
                 otp
         );
     }
 
-    // =========================================================
-    // GENERATE SECURE SIX-DIGIT OTP
-    // =========================================================
+    // =====================================================
+    // RATE LIMIT WINDOW MANAGEMENT
+    // =====================================================
+
+    private void refreshRateLimitWindows(
+            AdminLoginOtp record,
+            LocalDateTime now
+    ) {
+
+        LocalDateTime attemptWindow =
+                record.getAttemptWindowStartedAt();
+
+        if (attemptWindow == null
+                || !attemptWindow.plusMinutes(
+                        RATE_LIMIT_WINDOW_MINUTES
+                ).isAfter(now)) {
+
+            record.setAttempts(0);
+            record.setAttemptWindowStartedAt(now);
+        }
+
+        LocalDateTime resendWindow =
+                record.getResendWindowStartedAt();
+
+        if (resendWindow == null
+                || !resendWindow.plusMinutes(
+                        RATE_LIMIT_WINDOW_MINUTES
+                ).isAfter(now)) {
+
+            record.setResendCount(0);
+            record.setResendWindowStartedAt(now);
+        }
+    }
+
+    // =====================================================
+    // VERIFICATION ATTEMPT CHECK
+    // =====================================================
+
+    private void checkVerificationAttempts(
+            AdminLoginOtp record
+    ) {
+
+        if (record.getAttempts() >= MAX_ATTEMPTS) {
+
+            throw new OtpVerificationException(
+                    "Maximum OTP attempts exceeded. Please try again later."
+            );
+        }
+    }
+
+    // =====================================================
+    // RESEND COOLDOWN CHECK
+    // =====================================================
+
+    private void checkResendCooldown(
+            AdminLoginOtp record,
+            LocalDateTime now
+    ) {
+
+        if (record.getLastSentAt() == null) {
+            return;
+        }
+
+        long elapsed = Duration.between(
+                record.getLastSentAt(),
+                now
+        ).getSeconds();
+
+        if (elapsed < RESEND_COOLDOWN_SECONDS) {
+
+            long remaining =
+                    RESEND_COOLDOWN_SECONDS - elapsed;
+
+            throw new OtpVerificationException(
+                    "Please wait " + remaining
+                            + " seconds before requesting another OTP."
+            );
+        }
+    }
+
+    // =====================================================
+    // RESEND LIMIT CHECK
+    // =====================================================
+
+    private void checkResendLimit(
+            AdminLoginOtp record
+    ) {
+
+        if (record.getResendCount() >= MAX_RESENDS) {
+
+            throw new OtpVerificationException(
+                    "Maximum OTP resend limit reached. Please try again later."
+            );
+        }
+    }
+
+    // =====================================================
+    // GENERATE SECURE OTP
+    // =====================================================
 
     private String generateOtp() {
 
-        int value = secureRandom.nextInt(1_000_000);
-
-        return String.format("%06d", value);
+        return String.format(
+                Locale.ROOT,
+                "%06d",
+                secureRandom.nextInt(1_000_000)
+        );
     }
 
-    // =========================================================
-    // VALIDATE USER
-    // =========================================================
+    // =====================================================
+    // NORMALIZE EMAIL
+    // =====================================================
 
-    private void validateOtpUser(String email) {
+    private String normalizeEmail(String email) {
 
         if (email == null || email.isBlank()) {
 
@@ -255,20 +393,28 @@ public class OtpServiceImpl implements OtpService {
             );
         }
 
-        User user =
-                userRepository
-                        .findByEmail(email)
-                        .orElseThrow(() ->
-                                new OtpVerificationException(
-                                        "User account not found."
-                                )
-                        );
+        return email.trim().toLowerCase(Locale.ROOT);
+    }
+
+    // =====================================================
+    // VALIDATE OTP USER
+    // =====================================================
+
+    private void validateOtpUser(String email) {
+
+        User user = userRepository
+                .findByEmail(email)
+                .orElseThrow(() ->
+                        new OtpVerificationException(
+                                "Unable to process OTP request."
+                        )
+                );
 
         if (user.getRole() != UserRole.ADMIN
                 && user.getRole() != UserRole.TEACHER) {
 
             throw new OtpVerificationException(
-                    "OTP login is available only for administrators and teachers."
+                    "Unable to process OTP request."
             );
         }
 

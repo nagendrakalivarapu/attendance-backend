@@ -44,4 +44,6 @@ public interface AttendanceSessionRepository
 
     List<AttendanceSession> findAllByOrderByStartedAtDesc();
 
+    boolean existsByCourseId(Long courseId);
+
 }
