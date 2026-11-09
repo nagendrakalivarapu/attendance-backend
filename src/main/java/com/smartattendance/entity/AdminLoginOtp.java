@@ -13,10 +13,10 @@ import lombok.*;
 @Builder
 public class AdminLoginOtp extends BaseEntity {
 
-    @Column(nullable = false)
+    @Column(nullable = false, length = 255)
     private String email;
 
-    @Column(nullable = false)
+    @Column(nullable = false, length = 255)
     private String otpHash;
 
     @Column(nullable = false)
@@ -32,4 +32,5 @@ public class AdminLoginOtp extends BaseEntity {
 
     @Column(nullable = false)
     private LocalDateTime lastSentAt;
+
 }

@@ -1,9 +1,11 @@
+
 package com.smartattendance.dto.request;
 
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -14,6 +16,9 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class AttendanceEmailRequest {
+
+    @Builder.Default
+    private String subject = "Attendance Notification";
 
     @NotNull(message = "Course ID is required")
     private Long courseId;
@@ -27,6 +32,7 @@ public class AttendanceEmailRequest {
     @NotBlank(message = "Section is required")
     private String section;
 
+    @Builder.Default
     @DecimalMin(
             value = "0.0",
             message = "Threshold cannot be below 0"

@@ -10,10 +10,12 @@ import com.smartattendance.security.jwt.JwtService;
 import com.smartattendance.service.AuthService;
 import com.smartattendance.service.OtpService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 @Service
 @RequiredArgsConstructor
@@ -24,10 +26,7 @@ public class AuthServiceImpl implements AuthService {
     private final JwtService jwtService;
     private final OtpService otpService;
 
-    // ============================================================
     // LOGIN
-    // ============================================================
-
     @Override
     public LoginResponse login(LoginRequest request) {
 
@@ -39,13 +38,12 @@ public class AuthServiceImpl implements AuthService {
                 )
         );
 
-        // Load user.
         User user = userRepository.findByEmail(request.getEmail())
                 .orElseThrow(() ->
-                        new RuntimeException("User not found")
+                        new RuntimeException("Invalid credentials")
                 );
 
-        // Check account status.
+        // Reject disabled accounts.
         if (!Boolean.TRUE.equals(user.getEnabled())) {
             throw new RuntimeException("Account is disabled");
         }
@@ -65,14 +63,12 @@ public class AuthServiceImpl implements AuthService {
                     .build();
         }
 
-        // STUDENT login: Email + Password -> JWT.
-        UserDetails userDetails =
-                org.springframework.security.core.userdetails.User
-                        .builder()
-                        .username(user.getEmail())
-                        .password(user.getPassword())
-                        .roles(user.getRole().name())
-                        .build();
+        // Only STUDENT accounts can log in without OTP.
+        if (user.getRole() != UserRole.STUDENT) {
+            throw new RuntimeException("Unauthorized account role");
+        }
+
+        UserDetails userDetails = buildUserDetails(user);
 
         String token = jwtService.generateToken(userDetails);
 
@@ -85,46 +81,36 @@ public class AuthServiceImpl implements AuthService {
                 .build();
     }
 
-    // ============================================================
     // VERIFY OTP
-    // ============================================================
-
     @Override
     public LoginResponse verifyOtp(String email, String otp) {
 
-        // Verify OTP.
-        otpService.verifyOtp(email, otp);
-
-        // Load user.
+        // Load user before attempting OTP verification.
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() ->
-                        new RuntimeException("User not found")
+                        new RuntimeException("Invalid OTP or account")
                 );
 
-        // Only ADMIN and TEACHER can complete OTP login.
+        // Only ADMIN and TEACHER can use OTP login.
         if (user.getRole() != UserRole.ADMIN
                 && user.getRole() != UserRole.TEACHER) {
+            throw new RuntimeException("Invalid OTP or account");
+        }
 
-            throw new RuntimeException(
-                    "OTP verification is available only for administrators and teachers."
+        // Reject disabled accounts before consuming the OTP.
+        if (!Boolean.TRUE.equals(user.getEnabled())) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "Account is disabled"
             );
         }
 
-        // Check account status.
-        if (!Boolean.TRUE.equals(user.getEnabled())) {
-            throw new RuntimeException("Account is disabled");
-        }
-
-        // Build UserDetails.
-        UserDetails userDetails =
-                org.springframework.security.core.userdetails.User
-                        .builder()
-                        .username(user.getEmail())
-                        .password(user.getPassword())
-                        .roles(user.getRole().name())
-                        .build();
+        // Verify OTP only after account checks.
+        otpService.verifyOtp(email, otp);
 
         // Generate JWT after successful OTP verification.
+        UserDetails userDetails = buildUserDetails(user);
+
         String token = jwtService.generateToken(userDetails);
 
         String successMessage =
@@ -141,13 +127,19 @@ public class AuthServiceImpl implements AuthService {
                 .build();
     }
 
-    // ============================================================
     // RESEND OTP
-    // ============================================================
-
     @Override
     public void resendOtp(String email) {
-
         otpService.resendOtp(email);
+    }
+
+    // BUILD USER DETAILS
+    private UserDetails buildUserDetails(User user) {
+
+        return org.springframework.security.core.userdetails.User
+                .withUsername(user.getEmail())
+                .password(user.getPassword())
+                .roles(user.getRole().name())
+                .build();
     }
 }
