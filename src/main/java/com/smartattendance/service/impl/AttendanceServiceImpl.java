@@ -1,25 +1,29 @@
+
 package com.smartattendance.service.impl;
 
 import com.smartattendance.attendance.entity.AttendanceSession;
 import com.smartattendance.attendance.repository.AttendanceSessionRepository;
 import com.smartattendance.dto.request.AttendanceRequest;
 import com.smartattendance.dto.response.*;
-import com.smartattendance.entity.Attendance;
-import com.smartattendance.entity.Course;
-import com.smartattendance.entity.Enrollment;
-import com.smartattendance.entity.Student;
+import com.smartattendance.entity.*;
 import com.smartattendance.enums.AttendanceSessionStatus;
 import com.smartattendance.enums.AttendanceStatus;
 import com.smartattendance.repository.*;
 import com.smartattendance.service.AttendanceService;
 import com.smartattendance.service.FaceRecognitionService;
-import java.time.LocalDate;
-import java.util.ArrayList;
-import java.util.List;
+
 import lombok.RequiredArgsConstructor;
+
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.server.ResponseStatusException;
+
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -32,121 +36,216 @@ public class AttendanceServiceImpl implements AttendanceService {
     private final EnrollmentRepository enrollmentRepository;
     private final CourseRepository courseRepository;
     private final FaceRecognitionService faceRecognitionService;
-    private final UserRepository userRepository;
+    private final TeacherRepository teacherRepository;
+
     // ============================================================
-    // MARK ATTENDANCE
+    // COMMON HELPERS
+    // ============================================================
+
+    private Teacher findTeacherByEmail(String email) {
+        return teacherRepository.findByUser_Email(email)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Teacher account not found."
+                ));
+    }
+
+    private Student findStudentByEmail(String email) {
+        return studentRepository.findByUser_Email(email)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Student account not found."
+                ));
+    }
+
+    private Course findCourse(Long courseId) {
+        return courseRepository.findById(courseId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Course not found."
+                ));
+    }
+
+    private AttendanceSession findSession(Long sessionId) {
+        return attendanceSessionRepository.findById(sessionId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Attendance session not found."
+                ));
+    }
+
+    private Attendance findAttendance(Long id) {
+        return attendanceRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Attendance record not found."
+                ));
+    }
+
+    private void verifyTeacherOwnsCourse(Long courseId, String email) {
+
+        Teacher teacher = findTeacherByEmail(email);
+        Course course = findCourse(courseId);
+
+        if (course.getTeacher() == null ||
+                !course.getTeacher().getId().equals(teacher.getId())) {
+
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "You are not authorized to access this course."
+            );
+        }
+    }
+
+    private void verifyTeacherOwnsSession(
+            AttendanceSession session,
+            String email) {
+
+        if (session.getTeacher() == null ||
+                session.getTeacher().getUser() == null ||
+                !session.getTeacher().getUser().getEmail()
+                        .equalsIgnoreCase(email)) {
+
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "You are not authorized to access this attendance session."
+            );
+        }
+    }
+
+    private void verifyStudentOwnsRecord(Long studentId, String email) {
+
+        Student student = findStudentByEmail(email);
+
+        if (!student.getId().equals(studentId)) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "You can access only your own attendance records."
+            );
+        }
+    }
+
+    private void validateThreshold(double threshold) {
+
+        if (!Double.isFinite(threshold) ||
+                threshold < 0 || threshold > 100) {
+
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Attendance threshold must be between 0 and 100."
+            );
+        }
+    }
+
+    private void verifyStudentOrTeacherAccess(
+            Long studentId,
+            String email,
+            boolean isAdmin,
+            boolean isStudent,
+            List<Enrollment> enrollments) {
+
+        if (isAdmin) {
+            return;
+        }
+
+        if (isStudent) {
+            verifyStudentOwnsRecord(studentId, email);
+            return;
+        }
+
+        Teacher teacher = findTeacherByEmail(email);
+
+        enrollments.removeIf(enrollment ->
+                enrollment.getCourse() == null ||
+                enrollment.getCourse().getTeacher() == null ||
+                !enrollment.getCourse().getTeacher()
+                        .getId().equals(teacher.getId())
+        );
+    }
+
+    private void verifyStudentTeacherOrAdminAccess(
+            Long studentId,
+            String email,
+            boolean isAdmin,
+            boolean isStudent) {
+
+        if (isAdmin) {
+            return;
+        }
+
+        if (isStudent) {
+            verifyStudentOwnsRecord(studentId, email);
+            return;
+        }
+
+        Teacher teacher = findTeacherByEmail(email);
+
+        boolean hasAssignedCourse = enrollmentRepository
+                .findByStudentId(studentId)
+                .stream()
+                .anyMatch(enrollment ->
+                        enrollment.getCourse() != null &&
+                        enrollment.getCourse().getTeacher() != null &&
+                        enrollment.getCourse().getTeacher()
+                                .getId().equals(teacher.getId())
+                );
+
+        if (!hasAssignedCourse) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "You are not authorized to access this student's attendance."
+            );
+        }
+    }
+
+    // ============================================================
+    // MANUAL ATTENDANCE
     // ============================================================
 
     @Override
     public AttendanceResponse markAttendance(
-            AttendanceRequest request) {
+            AttendanceRequest request,
+            String email,
+            boolean isAdmin) {
 
-        // --------------------------------------------------------
-        // 1. Validate request
-        // --------------------------------------------------------
+        if (request == null ||
+                request.getStudentId() == null ||
+                request.getSessionId() == null ||
+                request.getStatus() == null) {
 
-        if (request.getStudentId() == null) {
-            throw new RuntimeException(
-                    "Student ID is required"
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Student ID, session ID and attendance status are required."
             );
         }
 
-        if (request.getSessionId() == null) {
-            throw new RuntimeException(
-                    "Session ID is required"
+        Student student = studentRepository.findById(request.getStudentId())
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Student not found."
+                ));
+
+        AttendanceSession session = findSession(request.getSessionId());
+
+        if (session.getStatus() != AttendanceSessionStatus.OPEN) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Attendance session is closed."
             );
         }
 
-        if (request.getStatus() == null) {
-            throw new RuntimeException(
-                    "Attendance status is required"
-            );
+        if (!isAdmin) {
+            verifyTeacherOwnsSession(session, email);
         }
 
+        Course course = session.getCourse();
 
-        // --------------------------------------------------------
-        // 2. Find student
-        // --------------------------------------------------------
-
-        Student student =
-                studentRepository
-                        .findById(request.getStudentId())
-                        .orElseThrow(() ->
-                                new RuntimeException(
-                                        "Student not found with ID: "
-                                                + request.getStudentId()
-                                )
-                        );
-
-
-        // --------------------------------------------------------
-        // 3. Find attendance session
-        // --------------------------------------------------------
-
-        AttendanceSession session =
-                attendanceSessionRepository
-                        .findById(request.getSessionId())
-                        .orElseThrow(() ->
-                                new RuntimeException(
-                                        "Attendance session not found with ID: "
-                                                + request.getSessionId()
-                                )
-                        );
-
-
-        // --------------------------------------------------------
-        // 4. Session must be OPEN
-        // --------------------------------------------------------
-
-        if (session.getStatus()
-                != AttendanceSessionStatus.OPEN) {
-
-            throw new RuntimeException(
-                    "Attendance session is closed. "
-                            + "Attendance cannot be marked."
+        if (course == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "No course is associated with this session."
             );
         }
-
-
-        // --------------------------------------------------------
-        // 5. Prevent duplicate attendance
-        // --------------------------------------------------------
-
-        boolean alreadyMarked =
-                attendanceRepository
-                        .existsByStudentIdAndSessionId(
-                                request.getStudentId(),
-                                request.getSessionId()
-                        );
-
-        if (alreadyMarked) {
-
-            throw new RuntimeException(
-                    "Attendance already marked for student ID "
-                            + request.getStudentId()
-                            + " in session ID "
-                            + request.getSessionId()
-            );
-        }
-
-
-        // --------------------------------------------------------
-        // 6. Get course from session
-        // --------------------------------------------------------
-
-        if (session.getCourse() == null) {
-
-            throw new RuntimeException(
-                    "Course is not associated with this attendance session"
-            );
-        }
-
-        var course = session.getCourse();
-
-
-        // --------------------------------------------------------
-        // 7. Verify student enrollment
-        // --------------------------------------------------------
 
         boolean enrolled =
                 enrollmentRepository.existsByStudentIdAndCourseId(
@@ -155,64 +254,63 @@ public class AttendanceServiceImpl implements AttendanceService {
                 );
 
         if (!enrolled) {
-
-            throw new RuntimeException(
-                    "Student with ID "
-                            + student.getId()
-                            + " is not enrolled in course ID "
-                            + course.getId()
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "Student is not enrolled in this course."
             );
         }
 
+        if (attendanceRepository.existsByStudentIdAndSessionId(
+                student.getId(),
+                session.getId())) {
 
-        // --------------------------------------------------------
-        // 8. Create attendance record
-        // --------------------------------------------------------
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Attendance has already been marked."
+            );
+        }
 
-        Attendance attendance =
-                Attendance.builder()
-                        .student(student)
-                        .course(course)
-                        .session(session)
-                        .attendanceDate(
-                                session.getAttendanceDate()
-                        )
-                        .status(request.getStatus())
-                        .build();
+        Attendance attendance = Attendance.builder()
+                .student(student)
+                .course(course)
+                .session(session)
+                .attendanceDate(session.getAttendanceDate())
+                .status(request.getStatus())
+                .build();
 
-
-        // --------------------------------------------------------
-        // 9. Save attendance
-        // --------------------------------------------------------
-
-        Attendance savedAttendance =
-                attendanceRepository.save(attendance);
-
-
-        // --------------------------------------------------------
-        // 10. Return response
-        // --------------------------------------------------------
-
-        return mapToResponse(savedAttendance);
+        return mapToResponse(attendanceRepository.save(attendance));
     }
-    //---------------------------------------------------
-    //sum of attendance
-    //----------------------------------------------------
+
+    // ============================================================
+    // ATTENDANCE SUMMARY
+    // ============================================================
+
     @Override
     @Transactional(readOnly = true)
-    public AttendanceSummaryResponse getAttendanceSummary(Long studentId) {
+    public AttendanceSummaryResponse getAttendanceSummary(
+            Long studentId,
+            String email,
+            boolean isAdmin,
+            boolean isStudent) {
 
-        Student student =
-                studentRepository
-                        .findById(studentId)
-                        .orElseThrow(() ->
-                                new RuntimeException(
-                                        "Student not found with ID: " + studentId
-                                )
-                        );
+        Student student = studentRepository.findById(studentId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Student not found."
+                ));
 
         List<Enrollment> enrollments =
-                enrollmentRepository.findByStudentId(studentId);
+                new ArrayList<>(
+                        enrollmentRepository.findByStudentId(studentId)
+                );
+
+        verifyStudentOrTeacherAccess(
+                studentId,
+                email,
+                isAdmin,
+                isStudent,
+                enrollments
+        );
 
         long totalSessions = 0;
         long presentCount = 0;
@@ -228,40 +326,30 @@ public class AttendanceServiceImpl implements AttendanceService {
 
             Long courseId = course.getId();
 
-            long courseSessions =
-                    attendanceSessionRepository
-                            .countByCourseIdAndStatus(
-                                    courseId,
-                                    AttendanceSessionStatus.CLOSED
-                            );
+            totalSessions +=
+                    attendanceSessionRepository.countByCourseIdAndStatus(
+                            courseId,
+                            AttendanceSessionStatus.CLOSED
+                    );
 
-            long coursePresent =
-                    attendanceRepository
-                            .countByStudentIdAndCourseIdAndStatus(
-                                    studentId,
-                                    courseId,
-                                    AttendanceStatus.PRESENT
-                            );
+            presentCount +=
+                    attendanceRepository.countByStudentIdAndCourseIdAndStatus(
+                            studentId,
+                            courseId,
+                            AttendanceStatus.PRESENT
+                    );
 
-            long courseAbsent =
-                    attendanceRepository
-                            .countByStudentIdAndCourseIdAndStatus(
-                                    studentId,
-                                    courseId,
-                                    AttendanceStatus.ABSENT
-                            );
-
-            totalSessions += courseSessions;
-            presentCount += coursePresent;
-            absentCount += courseAbsent;
+            absentCount +=
+                    attendanceRepository.countByStudentIdAndCourseIdAndStatus(
+                            studentId,
+                            courseId,
+                            AttendanceStatus.ABSENT
+                    );
         }
 
-        double attendancePercentage = 0.0;
-
-        if (totalSessions > 0) {
-            attendancePercentage =
-                    ((double) presentCount / totalSessions) * 100.0;
-        }
+        double percentage = totalSessions > 0
+                ? ((double) presentCount / totalSessions) * 100.0
+                : 0.0;
 
         return AttendanceSummaryResponse.builder()
                 .studentId(student.getId())
@@ -270,9 +358,7 @@ public class AttendanceServiceImpl implements AttendanceService {
                 .presentCount(presentCount)
                 .absentCount(absentCount)
                 .attendancePercentage(
-                        Math.round(
-                                attendancePercentage * 100.0
-                        ) / 100.0
+                        Math.round(percentage * 100.0) / 100.0
                 )
                 .build();
     }
@@ -281,148 +367,65 @@ public class AttendanceServiceImpl implements AttendanceService {
     @Transactional(readOnly = true)
     public AttendanceSummaryResponse getMyAttendanceSummary(String email) {
 
-        Student student = studentRepository
-                .findByUser_Email(email)
-                .orElseThrow(() ->
-                        new RuntimeException(
-                                "Student not found for logged-in user."
-                        )
-                );
+        Student student = findStudentByEmail(email);
 
-        return getAttendanceSummary(student.getId());
+        return getAttendanceSummary(
+                student.getId(),
+                email,
+                false,
+                true
+        );
     }
+
+    // ============================================================
+    // MY COURSE-WISE ATTENDANCE
+    // ============================================================
 
     @Override
     @Transactional(readOnly = true)
-    public List<CourseAttendanceSummaryResponse> getMyCourseWiseAttendance(String email) {
+    public List<CourseAttendanceSummaryResponse> getMyCourseWiseAttendance(
+            String email) {
 
-        Student student = studentRepository.findByUser_Email(email)
-                .orElseThrow(() -> new RuntimeException(
-                        "Student not found for logged-in user."
-                ));
+        Student student = findStudentByEmail(email);
 
-        return getCourseWiseAttendance(student.getId());
+        return getCourseWiseAttendance(
+                student.getId(),
+                email,
+                false,
+                true
+        );
     }
 
-    @Override
-    @Transactional(readOnly = true)
-    public List<StudentCourseAttendanceResponse>
-    getStudentCourseAttendanceReport(
-            Long courseId,
-            double threshold) {
+    // ============================================================
+    // COURSE-WISE ATTENDANCE
+    // ============================================================
 
-        if (threshold < 0 || threshold > 100) {
-            throw new RuntimeException(
-                    "Attendance threshold must be between 0 and 100"
-            );
-        }
-
-        Course course =
-                courseRepository.findById(courseId)
-                        .orElseThrow(() ->
-                                new RuntimeException(
-                                        "Course not found with ID: " + courseId
-                                )
-                        );
-
-        List<Enrollment> enrollments =
-                enrollmentRepository.findByCourseId(courseId);
-
-        long totalSessions =
-                attendanceSessionRepository
-                        .countByCourseIdAndStatus(
-                                courseId,
-                                AttendanceSessionStatus.CLOSED
-                        );
-
-        List<StudentCourseAttendanceResponse> response =
-                new ArrayList<>();
-
-        for (Enrollment enrollment : enrollments) {
-
-            Student student = enrollment.getStudent();
-
-            if (student == null) {
-                continue;
-            }
-
-            Long studentId = student.getId();
-
-            long presentCount =
-                    attendanceRepository
-                            .countByStudentIdAndCourseIdAndStatus(
-                                    studentId,
-                                    courseId,
-                                    AttendanceStatus.PRESENT
-                            );
-
-            long absentCount =
-                    attendanceRepository
-                            .countByStudentIdAndCourseIdAndStatus(
-                                    studentId,
-                                    courseId,
-                                    AttendanceStatus.ABSENT
-                            );
-
-            double attendancePercentage = 0.0;
-
-            if (totalSessions > 0) {
-                attendancePercentage =
-                        ((double) presentCount / totalSessions) * 100.0;
-            }
-
-            String status;
-
-            if (attendancePercentage < threshold) {
-                status = "LOW_ATTENDANCE";
-            } else {
-                status = "GOOD";
-            }
-
-            response.add(
-                    StudentCourseAttendanceResponse.builder()
-                            .studentId(studentId)
-                            .studentName(
-                                    student.getUser().getFullName()
-                            )
-                            .registrationNumber(
-                                    student.getRegistrationNumber()
-                            )
-                            .courseId(course.getId())
-                            .courseCode(course.getCourseCode())
-                            .courseName(course.getCourseName())
-                            .totalSessions(totalSessions)
-                            .presentCount(presentCount)
-                            .absentCount(absentCount)
-                            .attendancePercentage(
-                                    Math.round(
-                                            attendancePercentage * 100.0
-                                    ) / 100.0
-                            )
-                            .requiredPercentage(threshold)
-                            .status(status)
-                            .build()
-            );
-        }
-
-        return response;
-    }
     @Override
     @Transactional(readOnly = true)
     public List<CourseAttendanceSummaryResponse> getCourseWiseAttendance(
-            Long studentId) {
+            Long studentId,
+            String email,
+            boolean isAdmin,
+            boolean isStudent) {
 
-        Student student =
-                studentRepository
-                        .findById(studentId)
-                        .orElseThrow(() ->
-                                new RuntimeException(
-                                        "Student not found with ID: " + studentId
-                                )
-                        );
+        Student student = studentRepository.findById(studentId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Student not found."
+                ));
 
         List<Enrollment> enrollments =
-                enrollmentRepository.findByStudentId(studentId);
+                new ArrayList<>(
+                        enrollmentRepository.findByStudentId(studentId)
+                );
+
+        verifyStudentOrTeacherAccess(
+                studentId,
+                email,
+                isAdmin,
+                isStudent,
+                enrollments
+        );
 
         List<CourseAttendanceSummaryResponse> response =
                 new ArrayList<>();
@@ -444,110 +447,137 @@ public class AttendanceServiceImpl implements AttendanceService {
                     );
 
             long presentCount =
-                    attendanceRepository
-                            .countByStudentIdAndCourseIdAndStatus(
-                                    studentId,
-                                    courseId,
-                                    AttendanceStatus.PRESENT
-                            );
+                    attendanceRepository.countByStudentIdAndCourseIdAndStatus(
+                            studentId,
+                            courseId,
+                            AttendanceStatus.PRESENT
+                    );
 
             long absentCount =
-                    attendanceRepository
-                            .countByStudentIdAndCourseIdAndStatus(
-                                    studentId,
-                                    courseId,
-                                    AttendanceStatus.ABSENT
-                            );
+                    attendanceRepository.countByStudentIdAndCourseIdAndStatus(
+                            studentId,
+                            courseId,
+                            AttendanceStatus.ABSENT
+                    );
 
-            double attendancePercentage = 0.0;
+            double percentage = totalSessions > 0
+                    ? ((double) presentCount / totalSessions) * 100.0
+                    : 0.0;
 
-            if (totalSessions > 0) {
-                attendancePercentage =
-                        ((double) presentCount / totalSessions) * 100.0;
-            }
-
-            response.add(
-                    CourseAttendanceSummaryResponse.builder()
-                            .courseId(courseId)
-                            .courseCode(course.getCourseCode())
-                            .courseName(course.getCourseName())
-                            .totalSessions(totalSessions)
-                            .presentCount(presentCount)
-                            .absentCount(absentCount)
-                            .attendancePercentage(
-                                    Math.round(
-                                            attendancePercentage * 100.0
-                                    ) / 100.0
-                            )
-                            .build()
-            );
+            response.add(CourseAttendanceSummaryResponse.builder()
+                    .courseId(courseId)
+                    .courseCode(course.getCourseCode())
+                    .courseName(course.getCourseName())
+                    .totalSessions(totalSessions)
+                    .presentCount(presentCount)
+                    .absentCount(absentCount)
+                    .attendancePercentage(
+                            Math.round(percentage * 100.0) / 100.0
+                    )
+                    .build());
         }
 
         return response;
     }
+
     // ============================================================
-    // GET ATTENDANCE BY STUDENT
+    // ATTENDANCE BY STUDENT
     // ============================================================
 
     @Override
     @Transactional(readOnly = true)
     public List<AttendanceResponse> getAttendanceByStudent(
-            Long studentId) {
+            Long studentId,
+            String email,
+            boolean isAdmin,
+            boolean isStudent) {
 
         if (!studentRepository.existsById(studentId)) {
-
-            throw new RuntimeException(
-                    "Student not found with ID: "
-                            + studentId
+            throw new ResponseStatusException(
+                    HttpStatus.NOT_FOUND,
+                    "Student not found."
             );
         }
 
-        return attendanceRepository
-                .findByStudentId(studentId)
-                .stream()
+        verifyStudentTeacherOrAdminAccess(
+                studentId,
+                email,
+                isAdmin,
+                isStudent
+        );
+
+        List<Attendance> records =
+                attendanceRepository.findByStudentId(studentId);
+
+        if (isAdmin || isStudent) {
+            return records.stream()
+                    .map(this::mapToResponse)
+                    .collect(Collectors.toList());
+        }
+
+        Teacher teacher = findTeacherByEmail(email);
+
+        return records.stream()
+                .filter(record ->
+                        record.getCourse() != null &&
+                        record.getCourse().getTeacher() != null &&
+                        record.getCourse().getTeacher()
+                                .getId().equals(teacher.getId()))
                 .map(this::mapToResponse)
-                .toList();
+                .collect(Collectors.toList());
     }
 
-
     // ============================================================
-    // GET ATTENDANCE BY COURSE
+    // ATTENDANCE BY COURSE
     // ============================================================
 
     @Override
     @Transactional(readOnly = true)
     public List<AttendanceResponse> getAttendanceByCourse(
-            Long courseId) {
+            Long courseId,
+            String email,
+            boolean isAdmin) {
 
-        return attendanceRepository
-                .findByCourseId(courseId)
+        if (!isAdmin) {
+            verifyTeacherOwnsCourse(courseId, email);
+        } else {
+            findCourse(courseId);
+        }
+
+        return attendanceRepository.findByCourseId(courseId)
                 .stream()
                 .map(this::mapToResponse)
-                .toList();
+                .collect(Collectors.toList());
     }
+
+    // ============================================================
+    // LOW ATTENDANCE STUDENTS
+    // ============================================================
 
     @Override
     @Transactional(readOnly = true)
     public List<LowAttendanceResponse> getLowAttendanceStudents(
             Long courseId,
-            double threshold) {
+            double threshold,
+            String email,
+            boolean isAdmin) {
 
-        if (threshold < 0 || threshold > 100) {
-            throw new RuntimeException(
-                    "Attendance threshold must be between 0 and 100"
-            );
+        validateThreshold(threshold);
+
+        if (!isAdmin) {
+            verifyTeacherOwnsCourse(courseId, email);
         }
 
-        Course course =
-                courseRepository.findById(courseId)
-                        .orElseThrow(() ->
-                                new RuntimeException(
-                                        "Course not found with ID: " + courseId
-                                )
-                        );
+        Course course = findCourse(courseId);
 
         List<Enrollment> enrollments =
                 enrollmentRepository.findByCourseId(courseId);
+
+        long totalSessions =
+                attendanceSessionRepository.countByCourseIdAndStatus(
+                        courseId,
+                        AttendanceSessionStatus.CLOSED
+                );
 
         List<LowAttendanceResponse> response =
                 new ArrayList<>();
@@ -562,138 +592,199 @@ public class AttendanceServiceImpl implements AttendanceService {
 
             Long studentId = student.getId();
 
-            long totalSessions =
-                    attendanceSessionRepository.countByCourseIdAndStatus(
+            long presentCount =
+                    attendanceRepository.countByStudentIdAndCourseIdAndStatus(
+                            studentId,
                             courseId,
-                            AttendanceSessionStatus.CLOSED
+                            AttendanceStatus.PRESENT
                     );
 
-            long presentCount =
-                    attendanceRepository
-                            .countByStudentIdAndCourseIdAndStatus(
-                                    studentId,
-                                    courseId,
-                                    AttendanceStatus.PRESENT
-                            );
-
             long absentCount =
-                    attendanceRepository
-                            .countByStudentIdAndCourseIdAndStatus(
-                                    studentId,
-                                    courseId,
-                                    AttendanceStatus.ABSENT
-                            );
+                    attendanceRepository.countByStudentIdAndCourseIdAndStatus(
+                            studentId,
+                            courseId,
+                            AttendanceStatus.ABSENT
+                    );
 
-            double attendancePercentage = 0.0;
+            double percentage = totalSessions > 0
+                    ? ((double) presentCount / totalSessions) * 100.0
+                    : 0.0;
 
-            if (totalSessions > 0) {
-                attendancePercentage =
-                        ((double) presentCount / totalSessions) * 100.0;
-            }
+            if (percentage < threshold) {
 
-            if (attendancePercentage < threshold) {
+                double shortage = threshold - percentage;
 
-                double shortagePercentage =
-                        threshold - attendancePercentage;
-
-                response.add(
-                        LowAttendanceResponse.builder()
-                                .studentId(studentId)
-                                .studentName(
-                                        student.getUser().getFullName()
-                                )
-                                .registrationNumber(
-                                        student.getRegistrationNumber()
-                                )
-                                .courseId(course.getId())
-                                .courseCode(course.getCourseCode())
-                                .courseName(course.getCourseName())
-                                .totalSessions(totalSessions)
-                                .presentCount(presentCount)
-                                .absentCount(absentCount)
-                                .attendancePercentage(
-                                        Math.round(
-                                                attendancePercentage * 100.0
-                                        ) / 100.0
-                                )
-                                .requiredPercentage(threshold)
-                                .shortagePercentage(
-                                        Math.round(
-                                                shortagePercentage * 100.0
-                                        ) / 100.0
-                                )
-                                .build()
-                );
+                response.add(LowAttendanceResponse.builder()
+                        .studentId(studentId)
+                        .studentName(student.getUser().getFullName())
+                        .registrationNumber(student.getRegistrationNumber())
+                        .courseId(course.getId())
+                        .courseCode(course.getCourseCode())
+                        .courseName(course.getCourseName())
+                        .totalSessions(totalSessions)
+                        .presentCount(presentCount)
+                        .absentCount(absentCount)
+                        .attendancePercentage(
+                                Math.round(percentage * 100.0) / 100.0
+                        )
+                        .requiredPercentage(threshold)
+                        .shortagePercentage(
+                                Math.round(shortage * 100.0) / 100.0
+                        )
+                        .build());
             }
         }
 
         return response;
     }
 
+    // ============================================================
+    // STUDENT COURSE ATTENDANCE REPORT
+    // ============================================================
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<StudentCourseAttendanceResponse>
+    getStudentCourseAttendanceReport(
+            Long courseId,
+            double threshold,
+            String email,
+            boolean isAdmin) {
+
+        validateThreshold(threshold);
+
+        if (!isAdmin) {
+            verifyTeacherOwnsCourse(courseId, email);
+        }
+
+        Course course = findCourse(courseId);
+
+        List<Enrollment> enrollments =
+                enrollmentRepository.findByCourseId(courseId);
+
+        long totalSessions =
+                attendanceSessionRepository.countByCourseIdAndStatus(
+                        courseId,
+                        AttendanceSessionStatus.CLOSED
+                );
+
+        List<StudentCourseAttendanceResponse> response =
+                new ArrayList<>();
+
+        for (Enrollment enrollment : enrollments) {
+
+            Student student = enrollment.getStudent();
+
+            if (student == null) {
+                continue;
+            }
+
+            Long studentId = student.getId();
+
+            long presentCount =
+                    attendanceRepository.countByStudentIdAndCourseIdAndStatus(
+                            studentId,
+                            courseId,
+                            AttendanceStatus.PRESENT
+                    );
+
+            long absentCount =
+                    attendanceRepository.countByStudentIdAndCourseIdAndStatus(
+                            studentId,
+                            courseId,
+                            AttendanceStatus.ABSENT
+                    );
+
+            double percentage = totalSessions > 0
+                    ? ((double) presentCount / totalSessions) * 100.0
+                    : 0.0;
+
+            String status = percentage < threshold
+                    ? "LOW_ATTENDANCE"
+                    : "GOOD";
+
+            response.add(StudentCourseAttendanceResponse.builder()
+                    .studentId(studentId)
+                    .studentName(student.getUser().getFullName())
+                    .registrationNumber(student.getRegistrationNumber())
+                    .courseId(course.getId())
+                    .courseCode(course.getCourseCode())
+                    .courseName(course.getCourseName())
+                    .totalSessions(totalSessions)
+                    .presentCount(presentCount)
+                    .absentCount(absentCount)
+                    .attendancePercentage(
+                            Math.round(percentage * 100.0) / 100.0
+                    )
+                    .requiredPercentage(threshold)
+                    .status(status)
+                    .build());
+        }
+
+        return response;
+    }
+
+    // ============================================================
+    // FACE REGISTRATION
+    // ============================================================
+
     @Override
     public boolean registerFace(Long studentId, MultipartFile image) {
 
         if (image == null || image.isEmpty()) {
-            throw new RuntimeException("Face image is required.");
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Face image is required."
+            );
         }
 
         Student student = studentRepository.findById(studentId)
-                .orElseThrow(() ->
-                        new RuntimeException(
-                                "Student not found with ID: " + studentId
-                        )
-                );
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Student not found."
+                ));
 
-        String registrationNumber =
-                student.getRegistrationNumber();
-
-        boolean registered =
-                faceRecognitionService.registerFace(
-                        registrationNumber,
-                        image
-                );
+        boolean registered = faceRecognitionService.registerFace(
+                student.getRegistrationNumber(),
+                image
+        );
 
         if (!registered) {
-            throw new RuntimeException(
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
                     "Face registration failed."
             );
         }
 
         student.setFaceRegistered(true);
-
         studentRepository.save(student);
 
         return true;
     }
 
+    // ============================================================
+    // COURSE ATTENDANCE ANALYTICS
+    // ============================================================
+
     @Override
     @Transactional(readOnly = true)
     public CourseAttendanceAnalyticsResponse getCourseAttendanceAnalytics(
             Long courseId,
-            double threshold) {
+            double threshold,
+            String email,
+            boolean isAdmin) {
 
-        if (threshold < 0 || threshold > 100) {
-            throw new RuntimeException(
-                    "Attendance threshold must be between 0 and 100"
-            );
+        validateThreshold(threshold);
+
+        if (!isAdmin) {
+            verifyTeacherOwnsCourse(courseId, email);
         }
 
-        Course course =
-                courseRepository.findById(courseId)
-                        .orElseThrow(() ->
-                                new RuntimeException(
-                                        "Course not found with ID: " + courseId
-                                )
-                        );
+        Course course = findCourse(courseId);
 
         long totalStudents =
                 enrollmentRepository.countByCourseId(courseId);
 
-        /*
-         * Only CLOSED sessions are considered conducted sessions.
-         * OPEN sessions are still in progress and therefore are not
-         * included in attendance statistics.
-         */
         long totalSessions =
                 attendanceSessionRepository.countByCourseIdAndStatus(
                         courseId,
@@ -712,20 +803,20 @@ public class AttendanceServiceImpl implements AttendanceService {
                         AttendanceStatus.ABSENT
                 );
 
-        double averageAttendancePercentage = 0.0;
+        double percentage = 0.0;
 
         if (totalStudents > 0 && totalSessions > 0) {
-
-            long totalExpectedAttendance =
-                    totalStudents * totalSessions;
-
-            averageAttendancePercentage =
-                    ((double) totalPresent /
-                            totalExpectedAttendance) * 100.0;
+            long expected = totalStudents * totalSessions;
+            percentage = ((double) totalPresent / expected) * 100.0;
         }
 
-        List<LowAttendanceResponse> lowAttendanceStudents =
-                getLowAttendanceStudents(courseId, threshold);
+        List<LowAttendanceResponse> lowAttendance =
+                getLowAttendanceStudents(
+                        courseId,
+                        threshold,
+                        email,
+                        isAdmin
+                );
 
         return CourseAttendanceAnalyticsResponse.builder()
                 .courseId(course.getId())
@@ -736,33 +827,51 @@ public class AttendanceServiceImpl implements AttendanceService {
                 .totalPresent(totalPresent)
                 .totalAbsent(totalAbsent)
                 .averageAttendancePercentage(
-                        Math.round(
-                                averageAttendancePercentage * 100.0
-                        ) / 100.0
+                        Math.round(percentage * 100.0) / 100.0
                 )
-                .lowAttendanceStudents(
-                        lowAttendanceStudents.size()
-                )
+                .lowAttendanceStudents(lowAttendance.size())
                 .requiredPercentage(threshold)
                 .build();
     }
 
     // ============================================================
-    // GET ATTENDANCE BY DATE
+    // ATTENDANCE BY DATE
     // ============================================================
 
     @Override
     @Transactional(readOnly = true)
     public List<AttendanceResponse> getAttendanceByDate(
-            LocalDate date) {
+            LocalDate date,
+            String email,
+            boolean isAdmin) {
 
-        return attendanceRepository
-                .findByAttendanceDate(date)
-                .stream()
+        if (date == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Attendance date is required."
+            );
+        }
+
+        List<Attendance> records =
+                attendanceRepository.findByAttendanceDate(date);
+
+        if (isAdmin) {
+            return records.stream()
+                    .map(this::mapToResponse)
+                    .collect(Collectors.toList());
+        }
+
+        Teacher teacher = findTeacherByEmail(email);
+
+        return records.stream()
+                .filter(record ->
+                        record.getCourse() != null &&
+                        record.getCourse().getTeacher() != null &&
+                        record.getCourse().getTeacher()
+                                .getId().equals(teacher.getId()))
                 .map(this::mapToResponse)
-                .toList();
+                .collect(Collectors.toList());
     }
-
 
     // ============================================================
     // GET ATTENDANCE BY ID
@@ -772,19 +881,10 @@ public class AttendanceServiceImpl implements AttendanceService {
     @Transactional(readOnly = true)
     public AttendanceResponse getAttendance(Long id) {
 
-        Attendance attendance =
-                attendanceRepository
-                        .findById(id)
-                        .orElseThrow(() ->
-                                new RuntimeException(
-                                        "Attendance record not found with ID: "
-                                                + id
-                                )
-                        );
+        Attendance attendance = findAttendance(id);
 
         return mapToResponse(attendance);
     }
-
 
     // ============================================================
     // UPDATE ATTENDANCE
@@ -793,83 +893,43 @@ public class AttendanceServiceImpl implements AttendanceService {
     @Override
     public AttendanceResponse updateAttendance(
             Long id,
-            AttendanceRequest request) {
+            AttendanceRequest request,
+            String email,
+            boolean isAdmin) {
 
-        // --------------------------------------------------------
-        // 1. Find attendance
-        // --------------------------------------------------------
+        Attendance attendance = findAttendance(id);
 
-        Attendance attendance =
-                attendanceRepository
-                        .findById(id)
-                        .orElseThrow(() ->
-                                new RuntimeException(
-                                        "Attendance record not found with ID: "
-                                                + id
-                                )
-                        );
-
-
-        // --------------------------------------------------------
-        // 2. Get associated session
-        // --------------------------------------------------------
-
-        AttendanceSession session =
-                attendance.getSession();
+        AttendanceSession session = attendance.getSession();
 
         if (session == null) {
-
-            throw new RuntimeException(
-                    "Attendance session not found"
+            throw new ResponseStatusException(
+                    HttpStatus.NOT_FOUND,
+                    "Attendance session not found."
             );
         }
 
+        if (!isAdmin) {
+            verifyTeacherOwnsSession(session, email);
+        }
 
-        // --------------------------------------------------------
-        // 3. Do not modify closed session
-        // --------------------------------------------------------
-
-        if (session.getStatus()
-                != AttendanceSessionStatus.OPEN) {
-
-            throw new RuntimeException(
-                    "Attendance session is closed. "
-                            + "Attendance cannot be modified."
+        if (session.getStatus() != AttendanceSessionStatus.OPEN) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Attendance session is closed."
             );
         }
 
-
-        // --------------------------------------------------------
-        // 4. Validate status
-        // --------------------------------------------------------
-
-        if (request.getStatus() == null) {
-
-            throw new RuntimeException(
-                    "Attendance status is required"
+        if (request == null || request.getStatus() == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Attendance status is required."
             );
         }
 
+        attendance.setStatus(request.getStatus());
 
-        // --------------------------------------------------------
-        // 5. Update status
-        // --------------------------------------------------------
-
-        attendance.setStatus(
-                request.getStatus()
-        );
-
-
-        // --------------------------------------------------------
-        // 6. Save
-        // --------------------------------------------------------
-
-        Attendance updatedAttendance =
-                attendanceRepository.save(attendance);
-
-        return mapToResponse(updatedAttendance);
+        return mapToResponse(attendanceRepository.save(attendance));
     }
-
 
     // ============================================================
     // DELETE ATTENDANCE
@@ -878,110 +938,75 @@ public class AttendanceServiceImpl implements AttendanceService {
     @Override
     public void deleteAttendance(Long id) {
 
-        // --------------------------------------------------------
-        // 1. Find attendance
-        // --------------------------------------------------------
+        Attendance attendance = findAttendance(id);
 
-        Attendance attendance =
-                attendanceRepository
-                        .findById(id)
-                        .orElseThrow(() ->
-                                new RuntimeException(
-                                        "Attendance record not found with ID: "
-                                                + id
-                                )
-                        );
-
-
-        // --------------------------------------------------------
-        // 2. Get session
-        // --------------------------------------------------------
-
-        AttendanceSession session =
-                attendance.getSession();
+        AttendanceSession session = attendance.getSession();
 
         if (session == null) {
-
-            throw new RuntimeException(
-                    "Attendance session not found"
+            throw new ResponseStatusException(
+                    HttpStatus.NOT_FOUND,
+                    "Attendance session not found."
             );
         }
 
-
-        // --------------------------------------------------------
-        // 3. Do not delete from closed session
-        // --------------------------------------------------------
-
-        if (session.getStatus()
-                != AttendanceSessionStatus.OPEN) {
-
-            throw new RuntimeException(
-                    "Attendance session is closed. "
-                            + "Attendance cannot be deleted."
+        if (session.getStatus() != AttendanceSessionStatus.OPEN) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Attendance session is closed."
             );
         }
-
-
-        // --------------------------------------------------------
-        // 4. Delete
-        // --------------------------------------------------------
 
         attendanceRepository.delete(attendance);
     }
+
+    // ============================================================
+    // FACE-RECOGNITION ATTENDANCE
+    // ============================================================
+
     @Override
     public AttendanceResponse markAttendanceByFace(
             Long sessionId,
             String recognizedRegistrationNumber,
             String loggedInEmail) {
 
-        Student loggedInStudent =
-                studentRepository.findByUser_Email(loggedInEmail)
-                        .orElseThrow(() ->
-                                new RuntimeException(
-                                        "Student account not found."
-                                )
-                        );
+        Student loggedInStudent = findStudentByEmail(loggedInEmail);
+
+        if (recognizedRegistrationNumber == null ||
+                recognizedRegistrationNumber.trim().isEmpty()) {
+
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Face recognition did not return a student registration number."
+            );
+        }
 
         Student recognizedStudent =
-                studentRepository
-                        .findByRegistrationNumber(
-                                recognizedRegistrationNumber
-                        )
-                        .orElseThrow(() ->
-                                new RuntimeException(
-                                        "Recognized student not found."
-                                )
-                        );
+                studentRepository.findByRegistrationNumber(
+                        recognizedRegistrationNumber
+                ).orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Recognized student not found."
+                ));
 
-        if (!loggedInStudent.getId()
-                .equals(recognizedStudent.getId())) {
-
-            throw new RuntimeException(
+        if (!loggedInStudent.getId().equals(recognizedStudent.getId())) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
                     "Face does not match the logged-in student."
             );
         }
 
-        if (!Boolean.TRUE.equals(
-                recognizedStudent.getFaceRegistered())) {
-
-            throw new RuntimeException(
+        if (!Boolean.TRUE.equals(recognizedStudent.getFaceRegistered())) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
                     "Face is not registered for this student."
             );
         }
 
-        AttendanceSession session =
-                attendanceSessionRepository
-                        .findById(sessionId)
-                        .orElseThrow(() ->
-                                new RuntimeException(
-                                        "Attendance session not found."
-                                )
-                        );
+        AttendanceSession session = findSession(sessionId);
 
-        if (session.getStatus()
-                != AttendanceSessionStatus.OPEN) {
-
-            throw new RuntimeException(
+        if (session.getStatus() != AttendanceSessionStatus.OPEN) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
                     "Attendance session is closed."
             );
         }
@@ -989,63 +1014,55 @@ public class AttendanceServiceImpl implements AttendanceService {
         Course course = session.getCourse();
 
         if (course == null) {
-
-            throw new RuntimeException(
-                    "No course associated with this session."
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "No course is associated with this session."
             );
         }
 
         boolean enrolled =
-                enrollmentRepository
-                        .existsByStudentIdAndCourseId(
-                                recognizedStudent.getId(),
-                                course.getId()
-                        );
+                enrollmentRepository.existsByStudentIdAndCourseId(
+                        loggedInStudent.getId(),
+                        course.getId()
+                );
 
         if (!enrolled) {
-
-            throw new RuntimeException(
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
                     "Student is not enrolled in this course."
             );
         }
 
-        boolean alreadyMarked =
-                attendanceRepository
-                        .existsByStudentIdAndSessionId(
-                                recognizedStudent.getId(),
-                                sessionId
-                        );
+        if (attendanceRepository.existsByStudentIdAndSessionId(
+                loggedInStudent.getId(),
+                sessionId)) {
 
-        if (alreadyMarked) {
-
-            throw new RuntimeException(
-                    "Attendance already marked for this session."
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Attendance has already been marked."
             );
         }
 
-        Attendance attendance =
-                Attendance.builder()
-                        .student(recognizedStudent)
-                        .course(course)
-                        .session(session)
-                        .attendanceDate(
-                                session.getAttendanceDate()
-                        )
-                        .status(AttendanceStatus.PRESENT)
-                        .build();
+        Attendance attendance = Attendance.builder()
+                .student(loggedInStudent)
+                .course(course)
+                .session(session)
+                .attendanceDate(session.getAttendanceDate())
+                .status(AttendanceStatus.PRESENT)
+                .build();
 
-        Attendance savedAttendance =
-                attendanceRepository.save(attendance);
-
-        return mapToResponse(savedAttendance);
+        return mapToResponse(attendanceRepository.save(attendance));
     }
+
+    // ============================================================
+    // ADMIN ATTENDANCE DASHBOARD
+    // ============================================================
 
     @Override
     @Transactional(readOnly = true)
     public AdminAttendanceDashboardResponse getAdminAttendanceDashboard() {
 
-        long totalSessions =
-                attendanceSessionRepository.count();
+        long totalSessions = attendanceSessionRepository.count();
 
         long openSessions =
                 attendanceSessionRepository.countByStatus(
@@ -1057,8 +1074,7 @@ public class AttendanceServiceImpl implements AttendanceService {
                         AttendanceSessionStatus.CLOSED
                 );
 
-        long totalAttendanceRecords =
-                attendanceRepository.count();
+        long totalAttendanceRecords = attendanceRepository.count();
 
         long presentCount =
                 attendanceRepository.countByStatus(
@@ -1070,17 +1086,15 @@ public class AttendanceServiceImpl implements AttendanceService {
                         AttendanceStatus.ABSENT
                 );
 
-        long markedRecords =
-                presentCount + absentCount;
+        long markedRecords = presentCount + absentCount;
 
-        double attendancePercentage = 0.0;
+        double percentage = 0.0;
 
         if (markedRecords > 0) {
-            attendancePercentage =
+            percentage =
                     ((double) presentCount / markedRecords) * 100.0;
 
-            attendancePercentage =
-                    Math.round(attendancePercentage * 100.0) / 100.0;
+            percentage = Math.round(percentage * 100.0) / 100.0;
         }
 
         return AdminAttendanceDashboardResponse.builder()
@@ -1090,47 +1104,33 @@ public class AttendanceServiceImpl implements AttendanceService {
                 .totalAttendanceRecords(totalAttendanceRecords)
                 .presentCount(presentCount)
                 .absentCount(absentCount)
-                .attendancePercentage(attendancePercentage)
+                .attendancePercentage(percentage)
                 .build();
     }
 
     // ============================================================
-    // MAP ENTITY → RESPONSE
+    // MAP ENTITY TO RESPONSE
     // ============================================================
 
-    private AttendanceResponse mapToResponse(
-            Attendance attendance) {
+    private AttendanceResponse mapToResponse(Attendance attendance) {
 
         return AttendanceResponse.builder()
-
-                .id(
-                        attendance.getId()
-                )
-
+                .id(attendance.getId())
                 .studentName(
                         attendance.getStudent()
                                 .getUser()
                                 .getFullName()
                 )
-
                 .courseName(
                         attendance.getCourse()
                                 .getCourseName()
                 )
-
                 .sessionId(
                         attendance.getSession()
                                 .getId()
                 )
-
-                .attendanceDate(
-                        attendance.getAttendanceDate()
-                )
-
-                .status(
-                        attendance.getStatus()
-                )
-
+                .attendanceDate(attendance.getAttendanceDate())
+                .status(attendance.getStatus())
                 .build();
     }
 }
