@@ -137,6 +137,7 @@ public class AttendanceServiceImpl implements AttendanceService {
         }
     }
 
+
     private void verifyStudentOrTeacherAccess(
             Long studentId,
             String email,
@@ -157,11 +158,21 @@ public class AttendanceServiceImpl implements AttendanceService {
 
         enrollments.removeIf(enrollment ->
                 enrollment.getCourse() == null ||
-                enrollment.getCourse().getTeacher() == null ||
-                !enrollment.getCourse().getTeacher()
-                        .getId().equals(teacher.getId())
+                        enrollment.getCourse().getTeacher() == null ||
+                        !enrollment.getCourse().getTeacher()
+                                .getId().equals(teacher.getId())
         );
+
+        // A teacher must have at least one assigned course
+        // with this student before accessing the summary.
+        if (enrollments.isEmpty()) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "You are not authorized to access this student's attendance."
+            );
+        }
     }
+
 
     private void verifyStudentTeacherOrAdminAccess(
             Long studentId,

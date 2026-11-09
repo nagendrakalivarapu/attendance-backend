@@ -2,7 +2,9 @@ package com.smartattendance.service;
 
 import com.smartattendance.dto.request.StudentRequest;
 import com.smartattendance.dto.response.StudentResponse;
+
 import java.util.List;
+
 import org.springframework.web.multipart.MultipartFile;
 
 public interface StudentService {
@@ -22,5 +24,4 @@ public interface StudentService {
     boolean registerFace(Long studentId, MultipartFile image);
 
     boolean uploadProfilePicture(Long studentId, MultipartFile image);
-
 }

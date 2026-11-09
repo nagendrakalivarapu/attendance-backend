@@ -1,3 +1,4 @@
+
 package com.smartattendance.service.impl;
 
 import com.smartattendance.dto.request.StudentRequest;
@@ -11,82 +12,92 @@ import com.smartattendance.repository.StudentRepository;
 import com.smartattendance.repository.UserRepository;
 import com.smartattendance.service.FaceRecognitionService;
 import com.smartattendance.service.StudentService;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
-import java.util.List;
-import java.util.UUID;
+
 import lombok.RequiredArgsConstructor;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.server.ResponseStatusException;
+
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Locale;
+import java.util.Set;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
 public class StudentServiceImpl implements StudentService {
 
+    private static final long MAX_IMAGE_SIZE = 5L * 1024 * 1024;
+
+    private static final Set<String> ALLOWED_CONTENT_TYPES =
+            Set.of("image/jpeg", "image/png", "image/webp");
+
     private final StudentRepository studentRepository;
     private final UserRepository userRepository;
-
     private final AttendanceRepository attendanceRepository;
     private final EnrollmentRepository enrollmentRepository;
-
     private final FaceRecognitionService faceRecognitionService;
     private final PasswordEncoder passwordEncoder;
 
+    @Value("${student.profile-picture.directory:uploads/profile-pictures}")
+    private String profilePictureDirectory;
 
-    // ============================================================
+    // ------------------------------------------------------------
     // CREATE STUDENT
-    // ============================================================
-
+    // ------------------------------------------------------------
 
     @Override
     @Transactional
     public StudentResponse createStudent(StudentRequest request) {
 
-        // 1. Validate password
-        if (request.getPassword() == null
-                || request.getPassword().isBlank()) {
-
-            throw new IllegalArgumentException(
-                    "Student password is required."
-            );
+        if (request == null) {
+            throw badRequest("Student details are required.");
         }
 
-        // 2. Check duplicate registration number
+        String registrationNumber =
+                normalizeRequired(request.getRegistrationNumber(),
+                        "Registration number is required.");
+
+        String email = normalizeEmail(request.getEmail());
+
+        String password = request.getPassword();
+
+        if (password == null || password.isBlank()) {
+            throw badRequest("Student password is required.");
+        }
+
         if (studentRepository.existsByRegistrationNumber(
-                request.getRegistrationNumber())) {
-
-            throw new RuntimeException(
-                    "Registration number already exists."
-            );
+                registrationNumber)) {
+            throw conflict("Registration number already exists.");
         }
 
-        // 3. Check duplicate email
-        if (userRepository.findByEmail(request.getEmail()).isPresent()) {
-
-            throw new RuntimeException(
-                    "Email already exists."
-            );
+        if (userRepository.existsByEmail(email)) {
+            throw conflict("Email already exists.");
         }
 
-        // 4. Create user account
         User user = User.builder()
-                .fullName(request.getFullName())
-                .email(request.getEmail())
-                .password(passwordEncoder.encode(request.getPassword()))
+                .fullName(normalizeRequired(
+                        request.getFullName(), "Student name is required."))
+                .email(email)
+                .password(passwordEncoder.encode(password))
                 .role(UserRole.STUDENT)
                 .enabled(true)
                 .build();
 
         user = userRepository.save(user);
 
-        // 5. Create student record
         Student student = Student.builder()
-                .registrationNumber(request.getRegistrationNumber())
+                .registrationNumber(registrationNumber)
                 .department(request.getDepartment())
                 .semester(request.getSemester())
                 .section(request.getSection())
@@ -97,20 +108,16 @@ public class StudentServiceImpl implements StudentService {
                 .user(user)
                 .build();
 
-        student = studentRepository.save(student);
-
-        // 6. Return response
-        return mapToResponse(student);
+        return mapToResponse(studentRepository.save(student));
     }
 
-
-
-    // ============================================================
+    // ------------------------------------------------------------
     // GET ALL STUDENTS
-    // ============================================================
+    // ------------------------------------------------------------
 
     @Override
-    public List<StudentResponse> getAllStudents() {
+    @Transactional(readOnly = true)
+    public java.util.List<StudentResponse> getAllStudents() {
 
         return studentRepository.findAll()
                 .stream()
@@ -118,608 +125,425 @@ public class StudentServiceImpl implements StudentService {
                 .toList();
     }
 
-
-    // ============================================================
+    // ------------------------------------------------------------
     // GET MY PROFILE
-    // ============================================================
+    // ------------------------------------------------------------
 
     @Override
+    @Transactional(readOnly = true)
     public StudentResponse getMyProfile(String email) {
 
+        String normalizedEmail = normalizeEmail(email);
+
         Student student = studentRepository
-                .findByUser_Email(email)
-                .orElseThrow(() ->
-                        new RuntimeException(
-                                "Student not found for logged-in user."
-                        )
-                );
+                .findByUser_Email(normalizedEmail)
+                .orElseThrow(() -> notFound(
+                        "Student profile not found for logged-in user."));
 
         return mapToResponse(student);
     }
 
-
-    // ============================================================
+    // ------------------------------------------------------------
     // GET STUDENT BY ID
-    // ============================================================
+    // ------------------------------------------------------------
 
     @Override
+    @Transactional(readOnly = true)
     public StudentResponse getStudentById(Long id) {
 
-        Student student = studentRepository
-                .findById(id)
-                .orElseThrow(() ->
-                        new RuntimeException(
-                                "Student not found."
-                        )
-                );
+        Student student = findStudent(id);
 
         return mapToResponse(student);
     }
 
-
-    // ============================================================
+    // ------------------------------------------------------------
     // UPDATE STUDENT
-    // ============================================================
+    // ------------------------------------------------------------
 
     @Override
+    @Transactional
     public StudentResponse updateStudent(
             Long id,
             StudentRequest request) {
 
-        // Find existing student
-        Student student =
-                studentRepository
-                        .findById(id)
-                        .orElseThrow(() ->
-                                new RuntimeException(
-                                        "Student not found."
-                                )
-                        );
+        if (request == null) {
+            throw badRequest("Student details are required.");
+        }
 
-        // Get linked User
+        Student student = findStudent(id);
+
         User user = student.getUser();
 
         if (user == null) {
-            throw new RuntimeException(
-                    "Student does not have a linked user account."
-            );
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Student does not have a linked user account.");
         }
 
+        String registrationNumber = normalizeRequired(
+                request.getRegistrationNumber(),
+                "Registration number is required.");
 
-        // ========================================================
-        // UPDATE STUDENT INFORMATION
-        // ========================================================
+        if (!registrationNumber.equals(
+                student.getRegistrationNumber())
+                && studentRepository.existsByRegistrationNumberAndIdNot(
+                registrationNumber, id)) {
 
-        student.setRegistrationNumber(
-                request.getRegistrationNumber()
-        );
-
-        student.setDepartment(
-                request.getDepartment()
-        );
-
-        student.setSemester(
-                request.getSemester()
-        );
-
-        student.setSection(
-                request.getSection()
-        );
-
-        student.setPhone(
-                request.getPhone()
-        );
-
-        student.setDateOfBirth(
-                request.getDateOfBirth()
-        );
-
-        student.setGender(
-                request.getGender()
-        );
-
-        student.setAddress(
-                request.getAddress()
-        );
-
-
-        // ========================================================
-        // UPDATE USER INFORMATION
-        // ========================================================
-
-        // Update name
-        if (request.getFullName() != null &&
-                !request.getFullName().isBlank()) {
-
-            user.setFullName(
-                    request.getFullName()
-            );
+            throw conflict("Registration number already exists.");
         }
 
+        String email = normalizeEmail(request.getEmail());
 
-        // Update email
-        if (request.getEmail() != null &&
-                !request.getEmail().isBlank() &&
-                !request.getEmail().equals(user.getEmail())) {
-
-            if (userRepository.existsByEmail(
-                    request.getEmail())) {
-
-                throw new RuntimeException(
-                        "Email already exists."
-                );
+        if (!email.equalsIgnoreCase(user.getEmail())) {
+            if (userRepository.existsByEmail(email)) {
+                throw conflict("Email already exists.");
             }
-
-            user.setEmail(
-                    request.getEmail()
-            );
+            user.setEmail(email);
         }
 
+        student.setRegistrationNumber(registrationNumber);
+        student.setDepartment(request.getDepartment());
+        student.setSemester(request.getSemester());
+        student.setSection(request.getSection());
+        student.setPhone(request.getPhone());
+        student.setDateOfBirth(request.getDateOfBirth());
+        student.setGender(request.getGender());
+        student.setAddress(request.getAddress());
 
-        // Update password only if provided
-        if (request.getPassword() != null &&
-                !request.getPassword().isBlank()) {
+        if (request.getFullName() != null
+                && !request.getFullName().isBlank()) {
+            user.setFullName(request.getFullName().trim());
+        }
 
+        if (request.getPassword() != null
+                && !request.getPassword().isBlank()) {
             user.setPassword(
-                    passwordEncoder.encode(
-                            request.getPassword()
-                    )
-            );
+                    passwordEncoder.encode(request.getPassword()));
         }
 
-
-        // Save User
         userRepository.save(user);
 
-        // Save Student
-        student = studentRepository.save(student);
-
-        return mapToResponse(student);
+        return mapToResponse(studentRepository.save(student));
     }
 
-
-    // ============================================================
+    // ------------------------------------------------------------
     // DELETE STUDENT
-    // ============================================================
+    // ------------------------------------------------------------
 
     @Override
     @Transactional
     public void deleteStudent(Long id) {
 
-        // --------------------------------------------------------
-        // 1. FIND STUDENT
-        // --------------------------------------------------------
+        Student student = findStudent(id);
 
-        Student student = studentRepository
-                .findById(id)
-                .orElseThrow(() ->
-                        new RuntimeException(
-                                "Student not found."
-                        )
-                );
-
-
-        // --------------------------------------------------------
-        // 2. SAVE REQUIRED INFORMATION BEFORE DELETION
-        // --------------------------------------------------------
-
-        String registrationNumber =
-                student.getRegistrationNumber();
-
-        String profilePicture =
-                student.getProfilePicture();
-
-        User user =
-                student.getUser();
-
-
-        // --------------------------------------------------------
-        // 3. DELETE ATTENDANCE RECORDS
-        // --------------------------------------------------------
+        String registrationNumber = student.getRegistrationNumber();
+        String profilePicture = student.getProfilePicture();
+        User user = student.getUser();
 
         attendanceRepository.deleteByStudentId(id);
-
-
-        // --------------------------------------------------------
-        // 4. DELETE ENROLLMENTS
-        // --------------------------------------------------------
-
         enrollmentRepository.deleteByStudentId(id);
-
-
-        // --------------------------------------------------------
-        // 5. DELETE STUDENT RECORD
-        // --------------------------------------------------------
 
         studentRepository.delete(student);
 
-
-        // --------------------------------------------------------
-        // 6. DELETE LINKED USER ACCOUNT
-        // --------------------------------------------------------
-
         if (user != null) {
-
             userRepository.delete(user);
         }
 
-
-        // --------------------------------------------------------
-        // 7. DELETE FACE RECOGNITION FILES
-        // --------------------------------------------------------
-
+        // File cleanup is best-effort. It must never delete arbitrary
+        // filesystem paths obtained from database values.
         deleteFaceFiles(registrationNumber);
-
-
-        // --------------------------------------------------------
-        // 8. DELETE PROFILE PICTURE
-        // --------------------------------------------------------
-
         deleteProfilePicture(profilePicture);
     }
 
-
-    // ============================================================
+    // ------------------------------------------------------------
     // REGISTER FACE
-    // ============================================================
+    // ------------------------------------------------------------
 
     @Override
-    public boolean registerFace(
-            Long studentId,
-            MultipartFile image) {
+    @Transactional
+    public boolean registerFace(Long studentId, MultipartFile image) {
 
-        // Check image
-        if (image == null || image.isEmpty()) {
+        validateImage(image);
 
-            throw new RuntimeException(
-                    "Face image is required."
-            );
+        Student student = findStudent(studentId);
+
+        String registrationNumber = student.getRegistrationNumber();
+
+        if (registrationNumber == null
+                || !registrationNumber.matches("[A-Za-z0-9_-]{1,64}")) {
+            throw badRequest("Invalid student registration number.");
         }
 
+        boolean registered = faceRecognitionService.registerFace(
+                registrationNumber, image);
 
-        // Find student
-        Student student =
-                studentRepository
-                        .findById(studentId)
-                        .orElseThrow(() ->
-                                new RuntimeException(
-                                        "Student not found."
-                                )
-                        );
-
-
-        // Get registration number
-        String registrationNumber =
-                student.getRegistrationNumber();
-
-
-        // Send image to FastAPI
-        boolean registered =
-                faceRecognitionService.registerFace(
-                        registrationNumber,
-                        image
-                );
-
-
-        // FastAPI registration failed
         if (!registered) {
-
-            throw new RuntimeException(
-                    "Face registration failed. "
-                            + "Please make sure the image contains "
-                            + "exactly one face."
-            );
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_GATEWAY,
+                    "Face registration failed. Ensure the image contains "
+                            + "exactly one face.");
         }
 
-
-        // Mark face as registered
         student.setFaceRegistered(true);
-
-
-        // Save updated student
         studentRepository.save(student);
 
         return true;
     }
 
-
-    // ============================================================
+    // ------------------------------------------------------------
     // UPLOAD PROFILE PICTURE
-    // ============================================================
+    // ------------------------------------------------------------
 
     @Override
+    @Transactional
     public boolean uploadProfilePicture(
             Long studentId,
             MultipartFile image) {
 
-        Student student =
-                studentRepository
-                        .findById(studentId)
-                        .orElseThrow(() ->
-                                new RuntimeException(
-                                        "Student not found."
-                                )
-                        );
+        validateImage(image);
 
+        Student student = findStudent(studentId);
 
-        // Validate image
-        if (image == null || image.isEmpty()) {
+        Path uploadDirectory = Paths.get(profilePictureDirectory)
+                .toAbsolutePath()
+                .normalize();
 
-            throw new RuntimeException(
-                    "Profile picture is required."
-            );
-        }
-
-
-        // Validate content type
-        String contentType =
-                image.getContentType();
-
-        if (contentType == null ||
-                !(contentType.equals("image/jpeg")
-                        || contentType.equals("image/png")
-                        || contentType.equals("image/webp"))) {
-
-            throw new RuntimeException(
-                    "Only JPG, PNG, and WEBP images are allowed."
-            );
-        }
-
-
-        // Validate file size
-        if (image.getSize() > 5 * 1024 * 1024) {
-
-            throw new RuntimeException(
-                    "Profile picture must be less than 5 MB."
-            );
-        }
-
+        Path newFile = null;
 
         try {
+            Files.createDirectories(uploadDirectory);
 
-            // ----------------------------------------------------
-            // CREATE UPLOAD DIRECTORY
-            // ----------------------------------------------------
+            String extension = getValidatedExtension(image);
 
-            Path uploadDirectory =
-                    Paths.get(
-                            "uploads/profile-pictures"
-                    );
+            String filename = UUID.randomUUID() + extension;
 
-            Files.createDirectories(
-                    uploadDirectory
-            );
+            newFile = uploadDirectory.resolve(filename).normalize();
 
-
-            // ----------------------------------------------------
-            // DELETE PREVIOUS PROFILE PICTURE
-            // ----------------------------------------------------
-
-            if (student.getProfilePicture() != null) {
-
-                Path oldFile =
-                        Paths.get(
-                                student.getProfilePicture()
-                        );
-
-                if (Files.exists(oldFile)) {
-
-                    Files.delete(oldFile);
-                }
+            if (!newFile.startsWith(uploadDirectory)) {
+                throw badRequest("Invalid image storage path.");
             }
 
+            Files.copy(image.getInputStream(), newFile);
 
-            // ----------------------------------------------------
-            // GET FILE EXTENSION
-            // ----------------------------------------------------
+            String oldPicture = student.getProfilePicture();
 
-            String originalFilename =
-                    image.getOriginalFilename();
+            student.setProfilePicture(newFile.toString());
 
-            String extension = ".jpg";
+            studentRepository.saveAndFlush(student);
 
-            if (originalFilename != null &&
-                    originalFilename.contains(".")) {
-
-                extension =
-                        originalFilename.substring(
-                                originalFilename.lastIndexOf(".")
-                        ).toLowerCase();
-            }
-
-
-            // ----------------------------------------------------
-            // CREATE UNIQUE FILE NAME
-            // ----------------------------------------------------
-
-            String filename =
-                    UUID.randomUUID()
-                            + extension;
-
-
-            Path targetPath =
-                    uploadDirectory.resolve(
-                            filename
-                    );
-
-
-            // ----------------------------------------------------
-            // SAVE FILE
-            // ----------------------------------------------------
-
-            Files.copy(
-                    image.getInputStream(),
-                    targetPath,
-                    StandardCopyOption.REPLACE_EXISTING
-            );
-
-
-            // ----------------------------------------------------
-            // SAVE PATH IN DATABASE
-            // ----------------------------------------------------
-
-            student.setProfilePicture(
-                    targetPath.toString()
-            );
-
-            studentRepository.save(student);
+            // Only delete the previous file after the new one is saved.
+            deleteProfilePicture(oldPicture);
 
             return true;
 
-        } catch (IOException e) {
+        } catch (IOException ex) {
 
-            throw new RuntimeException(
-                    "Failed to save profile picture.",
-                    e
-            );
+            deleteFileQuietly(newFile);
+
+            throw new ResponseStatusException(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Failed to save profile picture.");
+        } catch (RuntimeException ex) {
+
+            deleteFileQuietly(newFile);
+
+            throw ex;
         }
     }
 
+    // ------------------------------------------------------------
+    // IMAGE VALIDATION
+    // ------------------------------------------------------------
 
-    // ============================================================
-    // DELETE FACE RECOGNITION FILES
-    // ============================================================
+    private void validateImage(MultipartFile image) {
 
-    private void deleteFaceFiles(
-            String registrationNumber) {
-
-        if (registrationNumber == null ||
-                registrationNumber.isBlank()) {
-
-            return;
+        if (image == null || image.isEmpty()) {
+            throw badRequest("Image file is required.");
         }
 
+        if (image.getSize() > MAX_IMAGE_SIZE) {
+            throw badRequest("Image must not exceed 5 MB.");
+        }
 
-        String[] files = {
+        String contentType = image.getContentType();
 
-                "face-recognition-api/embeddings/"
-                        + registrationNumber
-                        + ".npy",
+        if (contentType == null
+                || !ALLOWED_CONTENT_TYPES.contains(
+                contentType.toLowerCase(Locale.ROOT))) {
+            throw badRequest("Only JPG, PNG, and WEBP images are allowed.");
+        }
 
-                "face-recognition-api/uploads/"
-                        + registrationNumber
-                        + ".jpg"
-        };
-
-
-        for (String filePath : files) {
-
+        // Decode JPEG/PNG content to reject files that merely claim
+        // to be images through their Content-Type header.
+        if ("image/jpeg".equalsIgnoreCase(contentType)
+                || "image/png".equalsIgnoreCase(contentType)) {
             try {
+                BufferedImage decoded =
+                        ImageIO.read(image.getInputStream());
 
-                Path path =
-                        Paths.get(filePath);
-
-                Files.deleteIfExists(path);
-
-            } catch (Exception e) {
-
-                // Do not fail database deletion
-                // because of face-file cleanup problem.
-
-                System.err.println(
-                        "Unable to delete face file: "
-                                + filePath
-                );
+                if (decoded == null) {
+                    throw badRequest("Invalid image file.");
+                }
+            } catch (IOException ex) {
+                throw badRequest("Unable to read image file.");
             }
         }
     }
 
+    private String getValidatedExtension(MultipartFile image) {
 
-    // ============================================================
-    // DELETE PROFILE PICTURE
-    // ============================================================
+        String contentType = image.getContentType();
 
-    private void deleteProfilePicture(
-            String profilePicture) {
+        if ("image/jpeg".equalsIgnoreCase(contentType)) {
+            return ".jpg";
+        }
 
-        if (profilePicture == null ||
-                profilePicture.isBlank()) {
+        if ("image/png".equalsIgnoreCase(contentType)) {
+            return ".png";
+        }
 
+        if ("image/webp".equalsIgnoreCase(contentType)) {
+            // WEBP needs a decoder or magic-byte validation.
+            // Do not trust the original filename.
+            throw badRequest(
+                    "WEBP uploads require server-side WEBP content validation.");
+        }
+
+        throw badRequest("Unsupported image type.");
+    }
+
+    // ------------------------------------------------------------
+    // FILE CLEANUP
+    // ------------------------------------------------------------
+
+    private void deleteFaceFiles(String registrationNumber) {
+
+        if (registrationNumber == null
+                || !registrationNumber.matches("[A-Za-z0-9_-]{1,64}")) {
             return;
         }
 
+        deleteFileQuietly(Paths.get(
+                "face-recognition-api", "embeddings",
+                registrationNumber + ".npy"));
+
+        deleteFileQuietly(Paths.get(
+                "face-recognition-api", "uploads",
+                registrationNumber + ".jpg"));
+    }
+
+    private void deleteProfilePicture(String storedPath) {
+
+        if (storedPath == null || storedPath.isBlank()) {
+            return;
+        }
+
+        Path uploadDirectory = Paths.get(profilePictureDirectory)
+                .toAbsolutePath()
+                .normalize();
 
         try {
+            Path file = Paths.get(storedPath)
+                    .toAbsolutePath()
+                    .normalize();
 
-            Path path =
-                    Paths.get(profilePicture);
-
-            Files.deleteIfExists(path);
-
-        } catch (Exception e) {
-
-            // Do not fail database deletion
-            // because of profile picture cleanup problem.
-
-            System.err.println(
-                    "Unable to delete profile picture: "
-                            + profilePicture
-            );
+            if (file.startsWith(uploadDirectory)
+                    && !file.equals(uploadDirectory)) {
+                Files.deleteIfExists(file);
+            }
+        } catch (Exception ex) {
+            // Best-effort cleanup; do not expose filesystem paths.
         }
     }
 
+    private void deleteFileQuietly(Path path) {
 
-    // ============================================================
-    // MAP ENTITY TO RESPONSE
-    // ============================================================
+        if (path == null) {
+            return;
+        }
 
-    private StudentResponse mapToResponse(
-            Student student) {
+        try {
+            Files.deleteIfExists(path);
+        } catch (IOException ex) {
+            // Log this through a configured logger in production.
+        }
+    }
+
+    // ------------------------------------------------------------
+    // HELPERS
+    // ------------------------------------------------------------
+
+    private Student findStudent(Long id) {
+
+        if (id == null) {
+            throw badRequest("Student ID is required.");
+        }
+
+        return studentRepository.findById(id)
+                .orElseThrow(() -> notFound("Student not found."));
+    }
+
+    private String normalizeEmail(String email) {
+
+        if (email == null || email.isBlank()) {
+            throw badRequest("Email is required.");
+        }
+
+        return email.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private String normalizeRequired(String value, String message) {
+
+        if (value == null || value.isBlank()) {
+            throw badRequest(message);
+        }
+
+        return value.trim();
+    }
+
+    private ResponseStatusException badRequest(String message) {
+        return new ResponseStatusException(
+                HttpStatus.BAD_REQUEST, message);
+    }
+
+    private ResponseStatusException conflict(String message) {
+        return new ResponseStatusException(
+                HttpStatus.CONFLICT, message);
+    }
+
+    private ResponseStatusException notFound(String message) {
+        return new ResponseStatusException(
+                HttpStatus.NOT_FOUND, message);
+    }
+
+    // ------------------------------------------------------------
+    // ENTITY TO RESPONSE
+    // ------------------------------------------------------------
+
+    private StudentResponse mapToResponse(Student student) {
+
+        User user = student.getUser();
+
+        if (user == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Student has no linked user account.");
+        }
 
         return StudentResponse.builder()
-
-                .id(
-                        student.getId()
-                )
-
-                .registrationNumber(
-                        student.getRegistrationNumber()
-                )
-
-                .department(
-                        student.getDepartment()
-                )
-
-                .semester(
-                        student.getSemester()
-                )
-
-                .section(
-                        student.getSection()
-                )
-
-                .phone(
-                        student.getPhone()
-                )
-
-                .dateOfBirth(
-                        student.getDateOfBirth()
-                )
-
-                .gender(
-                        student.getGender()
-                )
-
-                .address(
-                        student.getAddress()
-                )
-
-                .studentName(
-                        student.getUser().getFullName()
-                )
-
-                .email(
-                        student.getUser().getEmail()
-                )
-
-                .faceRegistered(
-                        student.getFaceRegistered()
-                )
-
-                .profilePicture(
-                        student.getProfilePicture()
-                )
-
+                .id(student.getId())
+                .registrationNumber(student.getRegistrationNumber())
+                .department(student.getDepartment())
+                .semester(student.getSemester())
+                .section(student.getSection())
+                .phone(student.getPhone())
+                .dateOfBirth(student.getDateOfBirth())
+                .gender(student.getGender())
+                .address(student.getAddress())
+                .studentName(user.getFullName())
+                .email(user.getEmail())
+                .faceRegistered(student.getFaceRegistered())
+                .profilePicture(student.getProfilePicture())
                 .build();
     }
 }

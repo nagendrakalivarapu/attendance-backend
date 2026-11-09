@@ -4,9 +4,13 @@ package com.smartattendance.controller;
 import com.smartattendance.dto.request.TeacherRequest;
 import com.smartattendance.dto.response.TeacherResponse;
 import com.smartattendance.service.TeacherService;
+
 import jakarta.validation.Valid;
+
 import java.util.List;
+
 import lombok.RequiredArgsConstructor;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -19,7 +23,10 @@ public class TeacherController {
 
     private final TeacherService teacherService;
 
+    // ============================================================
     // CREATE TEACHER - ADMIN ONLY
+    // ============================================================
+
     @PostMapping
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<TeacherResponse> createTeacher(
@@ -33,34 +40,52 @@ public class TeacherController {
                 .body(response);
     }
 
-    // GET ALL TEACHERS
-    @GetMapping
-    @PreAuthorize("hasAnyRole('ADMIN','TEACHER')")
-    public List<TeacherResponse> getAllTeachers() {
+    // ============================================================
+    // GET ALL TEACHERS - ADMIN ONLY
+    // ============================================================
 
-        return teacherService.getAllTeachers();
+    @GetMapping
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<List<TeacherResponse>> getAllTeachers() {
+
+        return ResponseEntity.ok(
+                teacherService.getAllTeachers()
+        );
     }
 
-    // GET TEACHER BY ID
+    // ============================================================
+    // GET TEACHER BY ID - ADMIN ONLY
+    // ============================================================
+
     @GetMapping("/{id}")
-    @PreAuthorize("hasAnyRole('ADMIN','TEACHER')")
-    public TeacherResponse getTeacherById(
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<TeacherResponse> getTeacherById(
             @PathVariable Long id) {
 
-        return teacherService.getTeacherById(id);
+        return ResponseEntity.ok(
+                teacherService.getTeacherById(id)
+        );
     }
 
+    // ============================================================
     // UPDATE TEACHER - ADMIN ONLY
+    // ============================================================
+
     @PutMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
-    public TeacherResponse updateTeacher(
+    public ResponseEntity<TeacherResponse> updateTeacher(
             @PathVariable Long id,
             @Valid @RequestBody TeacherRequest request) {
 
-        return teacherService.updateTeacher(id, request);
+        return ResponseEntity.ok(
+                teacherService.updateTeacher(id, request)
+        );
     }
 
+    // ============================================================
     // DELETE TEACHER - ADMIN ONLY
+    // ============================================================
+
     @DeleteMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Void> deleteTeacher(

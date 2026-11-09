@@ -1,18 +1,22 @@
+
 package com.smartattendance.controller;
 
 import com.smartattendance.dto.request.StudentRequest;
 import com.smartattendance.dto.response.StudentResponse;
 import com.smartattendance.service.StudentService;
+
 import jakarta.validation.Valid;
+
 import java.util.List;
+
 import lombok.RequiredArgsConstructor;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.multipart.MultipartFile;
 
 @RestController
@@ -22,9 +26,8 @@ public class StudentController {
 
     private final StudentService studentService;
 
-
     // ============================================================
-    // CREATE STUDENT
+    // CREATE STUDENT - ADMIN ONLY
     // ============================================================
 
     @PostMapping
@@ -41,67 +44,79 @@ public class StudentController {
     }
 
     // ============================================================
-    // GET ALL STUDENTS
+    // GET ALL STUDENTS - ADMIN ONLY
     // ============================================================
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('ADMIN','TEACHER')")
-    public List<StudentResponse> getAllStudents() {
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<List<StudentResponse>> getAllStudents() {
 
-        return studentService.getAllStudents();
+        return ResponseEntity.ok(
+                studentService.getAllStudents()
+        );
     }
+
+    // ============================================================
+    // GET MY PROFILE - STUDENT ONLY
+    // ============================================================
 
     @GetMapping("/me")
     @PreAuthorize("hasRole('STUDENT')")
-    public StudentResponse getMyProfile(Authentication authentication) {
-        return studentService.getMyProfile(authentication.getName());
+    public ResponseEntity<StudentResponse> getMyProfile(
+            Authentication authentication) {
+
+        return ResponseEntity.ok(
+                studentService.getMyProfile(
+                        authentication.getName()
+                )
+        );
     }
 
     // ============================================================
-    // GET STUDENT BY ID
+    // GET STUDENT BY ID - ADMIN ONLY
     // ============================================================
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAnyRole('ADMIN','TEACHER')")
-    public StudentResponse getStudentById(
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<StudentResponse> getStudentById(
             @PathVariable Long id) {
 
-        return studentService.getStudentById(id);
+        return ResponseEntity.ok(
+                studentService.getStudentById(id)
+        );
     }
 
-
     // ============================================================
-    // UPDATE STUDENT
+    // UPDATE STUDENT - ADMIN ONLY
     // ============================================================
 
     @PutMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
-    public StudentResponse updateStudent(
+    public ResponseEntity<StudentResponse> updateStudent(
             @PathVariable Long id,
             @Valid @RequestBody StudentRequest request) {
 
-        return studentService.updateStudent(
-                id,
-                request
+        return ResponseEntity.ok(
+                studentService.updateStudent(id, request)
         );
     }
 
-
     // ============================================================
-    // DELETE STUDENT
+    // DELETE STUDENT - ADMIN ONLY
     // ============================================================
 
     @DeleteMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
-    public void deleteStudent(
+    public ResponseEntity<Void> deleteStudent(
             @PathVariable Long id) {
 
         studentService.deleteStudent(id);
+
+        return ResponseEntity.noContent().build();
     }
 
-
     // ============================================================
-    // REGISTER / UPDATE FACE
+    // REGISTER / UPDATE FACE - ADMIN ONLY
     // ============================================================
 
     @PostMapping(
@@ -113,36 +128,25 @@ public class StudentController {
             @PathVariable Long id,
             @RequestParam("image") MultipartFile image) {
 
-        // Validate image
-        if (image == null || image.isEmpty()) {
+        validateImage(image);
 
-            return ResponseEntity
-                    .badRequest()
-                    .body("Face image is required.");
-        }
-
-
-        // Register face
         boolean registered =
-                studentService.registerFace(
-                        id,
-                        image
-                );
+                studentService.registerFace(id, image);
 
-
-        // Face registration failed
         if (!registered) {
-
             return ResponseEntity
                     .status(HttpStatus.BAD_GATEWAY)
                     .body("Face registration failed.");
         }
 
-
-        // Face registration successful
-        return ResponseEntity
-                .ok("Face registered successfully.");
+        return ResponseEntity.ok(
+                "Face registered successfully."
+        );
     }
+
+    // ============================================================
+    // UPLOAD PROFILE PICTURE - ADMIN ONLY
+    // ============================================================
 
     @PostMapping(
             value = "/{id}/profile-picture",
@@ -153,21 +157,55 @@ public class StudentController {
             @PathVariable Long id,
             @RequestParam("image") MultipartFile image) {
 
-        if (image == null || image.isEmpty()) {
-            return ResponseEntity.badRequest()
-                    .body("Profile picture is required.");
-        }
+        validateImage(image);
 
         boolean uploaded =
                 studentService.uploadProfilePicture(id, image);
 
         if (!uploaded) {
-            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+            return ResponseEntity
+                    .status(HttpStatus.BAD_GATEWAY)
                     .body("Profile picture upload failed.");
         }
 
         return ResponseEntity.ok(
                 "Profile picture uploaded successfully."
         );
+    }
+
+    // ============================================================
+    // COMMON IMAGE VALIDATION
+    // ============================================================
+
+    private void validateImage(MultipartFile image) {
+
+        if (image == null || image.isEmpty()) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Image file is required."
+            );
+        }
+
+        // Preliminary size check.
+        if (image.getSize() > 5 * 1024 * 1024) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    HttpStatus.PAYLOAD_TOO_LARGE,
+                    "Image must not exceed 5 MB."
+            );
+        }
+
+        // Preliminary content type check.
+        String contentType = image.getContentType();
+
+        if (contentType == null ||
+                !(contentType.equalsIgnoreCase("image/jpeg")
+                        || contentType.equalsIgnoreCase("image/png")
+                        || contentType.equalsIgnoreCase("image/webp"))) {
+
+            throw new org.springframework.web.server.ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Only JPG, PNG and WEBP images are allowed."
+            );
+        }
     }
 }
