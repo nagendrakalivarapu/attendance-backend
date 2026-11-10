@@ -20,15 +20,16 @@ import lombok.extern.slf4j.Slf4j;
 
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
 @Slf4j
-@Transactional
 public class OtpServiceImpl implements OtpService {
 
     private static final int OTP_EXPIRY_MINUTES = 5;
+
     private static final int MAX_ATTEMPTS = 5;
     private static final int MAX_RESENDS = 3;
 
@@ -47,6 +48,10 @@ public class OtpServiceImpl implements OtpService {
     // =====================================================
 
     @Override
+    @Transactional(
+            propagation = Propagation.REQUIRES_NEW,
+            noRollbackFor = OtpVerificationException.class
+    )
     public void generateAndSendOtp(String email) {
 
         email = normalizeEmail(email);
@@ -61,6 +66,10 @@ public class OtpServiceImpl implements OtpService {
     // =====================================================
 
     @Override
+    @Transactional(
+            propagation = Propagation.REQUIRES_NEW,
+            noRollbackFor = OtpVerificationException.class
+    )
     public void resendOtp(String email) {
 
         email = normalizeEmail(email);
@@ -91,7 +100,7 @@ public class OtpServiceImpl implements OtpService {
 
         checkResendLimit(record);
 
-        record.setResendCount(record.getResendCount() + 1);
+        record.setResendCount(getResendCount(record) + 1);
 
         sendNewOtp(record, now);
     }
@@ -101,13 +110,20 @@ public class OtpServiceImpl implements OtpService {
     // =====================================================
 
     @Override
-    @Transactional(noRollbackFor = OtpVerificationException.class)
+    @Transactional(
+            propagation = Propagation.REQUIRES_NEW,
+            noRollbackFor = OtpVerificationException.class
+    )
     public boolean verifyOtp(String email, String otp) {
 
         email = normalizeEmail(email);
 
+        validateOtpUser(email);
+
         if (otp == null || !otp.matches("\\d{6}")) {
-            throw new OtpVerificationException("Invalid OTP.");
+            throw new OtpVerificationException(
+                    "Invalid OTP."
+            );
         }
 
         AdminLoginOtp record = otpRepository
@@ -138,27 +154,29 @@ public class OtpServiceImpl implements OtpService {
 
         checkVerificationAttempts(record);
 
-        if (!passwordEncoder.matches(
-                otp,
-                record.getOtpHash()
-        )) {
+        if (record.getOtpHash() == null
+                || !passwordEncoder.matches(
+                        otp,
+                        record.getOtpHash()
+                )) {
 
-            record.setAttempts(record.getAttempts() + 1);
+            int attempts = getAttempts(record) + 1;
+
+            record.setAttempts(attempts);
 
             otpRepository.saveAndFlush(record);
 
-            int remaining =
-                    MAX_ATTEMPTS - record.getAttempts();
+            int remaining = MAX_ATTEMPTS - attempts;
 
             throw new OtpVerificationException(
                     remaining > 0
                             ? "Invalid OTP. " + remaining
-                                + " attempts remaining."
+                                    + " attempts remaining."
                             : "Maximum OTP attempts exceeded."
             );
         }
 
-        // Mark OTP as used.
+        // OTP can only be successfully used once.
         record.setVerified(true);
 
         otpRepository.saveAndFlush(record);
@@ -178,6 +196,7 @@ public class OtpServiceImpl implements OtpService {
                 .findByEmailForUpdate(email)
                 .orElse(null);
 
+        // First OTP request for this email.
         if (record == null) {
 
             record = AdminLoginOtp.builder()
@@ -197,19 +216,6 @@ public class OtpServiceImpl implements OtpService {
             return;
         }
 
-        if (Boolean.TRUE.equals(record.getVerified())) {
-
-            // A new authenticated login starts a new challenge.
-            record.setAttempts(0);
-            record.setResendCount(0);
-            record.setAttemptWindowStartedAt(now);
-            record.setResendWindowStartedAt(now);
-
-            sendNewOtp(record, now);
-
-            return;
-        }
-
         refreshRateLimitWindows(record, now);
 
         checkVerificationAttempts(record);
@@ -218,7 +224,9 @@ public class OtpServiceImpl implements OtpService {
 
         checkResendLimit(record);
 
-        record.setResendCount(record.getResendCount() + 1);
+        // A fresh authenticated login can start a new challenge,
+        // but cannot bypass the existing rate limits.
+        record.setResendCount(getResendCount(record) + 1);
 
         sendNewOtp(record, now);
     }
@@ -229,8 +237,7 @@ public class OtpServiceImpl implements OtpService {
 
     private void sendNewOtp(
             AdminLoginOtp record,
-            LocalDateTime now
-    ) {
+            LocalDateTime now) {
 
         String otp = generateOtp();
 
@@ -262,7 +269,7 @@ public class OtpServiceImpl implements OtpService {
 
         record.setVerified(false);
 
-        // Save before email delivery.
+        // Persist the hashed OTP before sending the email.
         otpRepository.saveAndFlush(record);
 
         emailService.sendAdminLoginOtp(
@@ -277,8 +284,7 @@ public class OtpServiceImpl implements OtpService {
 
     private void refreshRateLimitWindows(
             AdminLoginOtp record,
-            LocalDateTime now
-    ) {
+            LocalDateTime now) {
 
         LocalDateTime attemptWindow =
                 record.getAttemptWindowStartedAt();
@@ -289,6 +295,7 @@ public class OtpServiceImpl implements OtpService {
                 ).isAfter(now)) {
 
             record.setAttempts(0);
+
             record.setAttemptWindowStartedAt(now);
         }
 
@@ -301,6 +308,7 @@ public class OtpServiceImpl implements OtpService {
                 ).isAfter(now)) {
 
             record.setResendCount(0);
+
             record.setResendWindowStartedAt(now);
         }
     }
@@ -310,10 +318,9 @@ public class OtpServiceImpl implements OtpService {
     // =====================================================
 
     private void checkVerificationAttempts(
-            AdminLoginOtp record
-    ) {
+            AdminLoginOtp record) {
 
-        if (record.getAttempts() >= MAX_ATTEMPTS) {
+        if (getAttempts(record) >= MAX_ATTEMPTS) {
 
             throw new OtpVerificationException(
                     "Maximum OTP attempts exceeded. Please try again later."
@@ -327,8 +334,7 @@ public class OtpServiceImpl implements OtpService {
 
     private void checkResendCooldown(
             AdminLoginOtp record,
-            LocalDateTime now
-    ) {
+            LocalDateTime now) {
 
         if (record.getLastSentAt() == null) {
             return;
@@ -356,15 +362,32 @@ public class OtpServiceImpl implements OtpService {
     // =====================================================
 
     private void checkResendLimit(
-            AdminLoginOtp record
-    ) {
+            AdminLoginOtp record) {
 
-        if (record.getResendCount() >= MAX_RESENDS) {
+        if (getResendCount(record) >= MAX_RESENDS) {
 
             throw new OtpVerificationException(
                     "Maximum OTP resend limit reached. Please try again later."
             );
         }
+    }
+
+    // =====================================================
+    // NULL-SAFE COUNTERS
+    // =====================================================
+
+    private int getAttempts(AdminLoginOtp record) {
+
+        return record.getAttempts() == null
+                ? 0
+                : record.getAttempts();
+    }
+
+    private int getResendCount(AdminLoginOtp record) {
+
+        return record.getResendCount() == null
+                ? 0
+                : record.getResendCount();
     }
 
     // =====================================================

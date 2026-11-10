@@ -1,12 +1,16 @@
 
 package com.smartattendance.exception;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.DisabledException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -21,21 +25,33 @@ import lombok.extern.slf4j.Slf4j;
 public class GlobalExceptionHandler {
 
     // =========================================================
-    // RESPONSE BUILDER
+    // COMMON RESPONSE BUILDER
     // =========================================================
+
+    private ResponseEntity<Map<String, Object>> buildResponse(
+            HttpStatusCode status,
+            String error,
+            String message) {
+
+        Map<String, Object> response = new LinkedHashMap<>();
+
+        response.put("timestamp", Instant.now());
+        response.put("status", status.value());
+        response.put("error", error);
+        response.put("message", message);
+
+        return ResponseEntity.status(status).body(response);
+    }
 
     private ResponseEntity<Map<String, Object>> buildResponse(
             HttpStatus status,
             String message) {
 
-        Map<String, Object> response = new LinkedHashMap<>();
-
-        response.put("timestamp", LocalDateTime.now());
-        response.put("status", status.value());
-        response.put("error", status.getReasonPhrase());
-        response.put("message", message);
-
-        return ResponseEntity.status(status).body(response);
+        return buildResponse(
+                status,
+                status.getReasonPhrase(),
+                message
+        );
     }
 
     // =========================================================
@@ -48,7 +64,7 @@ public class GlobalExceptionHandler {
 
         return buildResponse(
                 HttpStatus.BAD_REQUEST,
-                ex.getMessage()
+                "Invalid OTP request."
         );
     }
 
@@ -57,19 +73,22 @@ public class GlobalExceptionHandler {
     // =========================================================
 
     @ExceptionHandler(ResponseStatusException.class)
-    public ResponseEntity<Map<String, Object>>
-    handleResponseStatusException(ResponseStatusException ex) {
+    public ResponseEntity<Map<String, Object>> handleResponseStatusException(
+            ResponseStatusException ex) {
 
-        HttpStatus status = HttpStatus.valueOf(
-                ex.getStatusCode().value()
-        );
+        HttpStatusCode status = ex.getStatusCode();
 
-        return buildResponse(
-                status,
-                ex.getReason() != null
-                        ? ex.getReason()
-                        : status.getReasonPhrase()
-        );
+        HttpStatus resolvedStatus = HttpStatus.resolve(status.value());
+
+        String error = resolvedStatus != null
+                ? resolvedStatus.getReasonPhrase()
+                : "HTTP Error";
+
+        String message = ex.getReason() != null
+                ? ex.getReason()
+                : "The request could not be processed.";
+
+        return buildResponse(status, error, message);
     }
 
     // =========================================================
@@ -80,19 +99,23 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Map<String, Object>> handleValidationException(
             MethodArgumentNotValidException ex) {
 
-        String message = ex.getBindingResult()
-                .getFieldErrors()
-                .stream()
-                .map(error ->
-                        error.getField() + ": "
-                                + error.getDefaultMessage()
-                )
-                .findFirst()
-                .orElse("Invalid request data.");
+        return buildResponse(
+                HttpStatus.BAD_REQUEST,
+                "Invalid request data."
+        );
+    }
+
+    // =========================================================
+    // MALFORMED JSON REQUESTS
+    // =========================================================
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<Map<String, Object>> handleMalformedRequest(
+            HttpMessageNotReadableException ex) {
 
         return buildResponse(
                 HttpStatus.BAD_REQUEST,
-                message
+                "Invalid or malformed request body."
         );
     }
 
@@ -125,6 +148,34 @@ public class GlobalExceptionHandler {
     }
 
     // =========================================================
+    // OTHER AUTHENTICATION FAILURES
+    // =========================================================
+
+    @ExceptionHandler(AuthenticationException.class)
+    public ResponseEntity<Map<String, Object>> handleAuthenticationException(
+            AuthenticationException ex) {
+
+        return buildResponse(
+                HttpStatus.UNAUTHORIZED,
+                "Authentication failed."
+        );
+    }
+
+    // =========================================================
+    // AUTHORIZATION FAILURES
+    // =========================================================
+
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<Map<String, Object>> handleAccessDenied(
+            AccessDeniedException ex) {
+
+        return buildResponse(
+                HttpStatus.FORBIDDEN,
+                "You do not have permission to perform this action."
+        );
+    }
+
+    // =========================================================
     // UNEXPECTED RUNTIME EXCEPTIONS
     // =========================================================
 
@@ -133,7 +184,8 @@ public class GlobalExceptionHandler {
             RuntimeException ex) {
 
         log.error(
-                "Unexpected runtime exception occurred",
+                "Unexpected runtime exception: {}",
+                ex.getClass().getSimpleName(),
                 ex
         );
 
@@ -152,7 +204,8 @@ public class GlobalExceptionHandler {
             Exception ex) {
 
         log.error(
-                "Unexpected application exception occurred",
+                "Unexpected application exception: {}",
+                ex.getClass().getSimpleName(),
                 ex
         );
 

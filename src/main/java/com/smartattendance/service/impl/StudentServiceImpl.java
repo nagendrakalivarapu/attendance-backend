@@ -12,7 +12,11 @@ import com.smartattendance.repository.StudentRepository;
 import com.smartattendance.repository.UserRepository;
 import com.smartattendance.service.FaceRecognitionService;
 import com.smartattendance.service.StudentService;
+import javax.imageio.ImageIO;
+import javax.imageio.ImageReader;
+import javax.imageio.stream.ImageInputStream;
 
+import java.util.Iterator;
 import lombok.RequiredArgsConstructor;
 
 import org.springframework.beans.factory.annotation.Value;
@@ -355,6 +359,7 @@ public class StudentServiceImpl implements StudentService {
     // IMAGE VALIDATION
     // ------------------------------------------------------------
 
+
     private void validateImage(MultipartFile image) {
 
         if (image == null || image.isEmpty()) {
@@ -362,31 +367,83 @@ public class StudentServiceImpl implements StudentService {
         }
 
         if (image.getSize() > MAX_IMAGE_SIZE) {
-            throw badRequest("Image must not exceed 5 MB.");
+            throw new ResponseStatusException(
+                    HttpStatus.PAYLOAD_TOO_LARGE,
+                    "Image must not exceed 5 MB."
+            );
         }
 
-        String contentType = image.getContentType();
+        String declaredType = image.getContentType();
 
-        if (contentType == null
-                || !ALLOWED_CONTENT_TYPES.contains(
-                contentType.toLowerCase(Locale.ROOT))) {
-            throw badRequest("Only JPG, PNG, and WEBP images are allowed.");
+        if (declaredType == null
+                || !(declaredType.equalsIgnoreCase("image/jpeg")
+                || declaredType.equalsIgnoreCase("image/png"))) {
+
+            throw badRequest(
+                    "Only JPEG and PNG images are allowed."
+            );
         }
 
-        // Decode JPEG/PNG content to reject files that merely claim
-        // to be images through their Content-Type header.
-        if ("image/jpeg".equalsIgnoreCase(contentType)
-                || "image/png".equalsIgnoreCase(contentType)) {
+        try (ImageInputStream input =
+                     ImageIO.createImageInputStream(image.getInputStream())) {
+
+            if (input == null) {
+                throw badRequest("Invalid image file.");
+            }
+
+            Iterator<ImageReader> readers =
+                    ImageIO.getImageReaders(input);
+
+            if (!readers.hasNext()) {
+                throw badRequest("Unsupported or invalid image file.");
+            }
+
+            ImageReader reader = readers.next();
+
             try {
-                BufferedImage decoded =
-                        ImageIO.read(image.getInputStream());
+
+                reader.setInput(input, true, true);
+
+                String detectedFormat =
+                        reader.getFormatName().toLowerCase(Locale.ROOT);
+
+                boolean validFormat =
+                        ("jpeg".equals(detectedFormat)
+                                && declaredType.equalsIgnoreCase("image/jpeg"))
+                                || ("png".equals(detectedFormat)
+                                && declaredType.equalsIgnoreCase("image/png"));
+
+                if (!validFormat) {
+                    throw badRequest(
+                            "Image content does not match its declared format."
+                    );
+                }
+
+                int width = reader.getWidth(0);
+                int height = reader.getHeight(0);
+
+                if (width <= 0 || height <= 0
+                        || width > 4096 || height > 4096
+                        || (long) width * height > 16_000_000L) {
+
+                    throw badRequest(
+                            "Image dimensions exceed the allowed limits."
+                    );
+                }
+
+                BufferedImage decoded = reader.read(0);
 
                 if (decoded == null) {
-                    throw badRequest("Invalid image file.");
+                    throw badRequest("Unable to decode image.");
                 }
-            } catch (IOException ex) {
-                throw badRequest("Unable to read image file.");
+
+            } finally {
+                reader.dispose();
             }
+
+        } catch (IOException ex) {
+
+            throw badRequest("Invalid or corrupted image file.");
         }
     }
 
@@ -402,15 +459,9 @@ public class StudentServiceImpl implements StudentService {
             return ".png";
         }
 
-        if ("image/webp".equalsIgnoreCase(contentType)) {
-            // WEBP needs a decoder or magic-byte validation.
-            // Do not trust the original filename.
-            throw badRequest(
-                    "WEBP uploads require server-side WEBP content validation.");
-        }
-
         throw badRequest("Unsupported image type.");
     }
+
 
     // ------------------------------------------------------------
     // FILE CLEANUP
