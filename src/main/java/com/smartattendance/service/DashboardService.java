@@ -1,3 +1,4 @@
+
 package com.smartattendance.service;
 
 import com.smartattendance.dto.dashboard.AdminDashboardResponse;
@@ -8,8 +9,7 @@ public interface DashboardService {
 
     AdminDashboardResponse getAdminDashboard();
 
-    TeacherDashboardResponse getTeacherDashboard(Long teacherId);
+    TeacherDashboardResponse getTeacherDashboard(String email);
 
-    StudentDashboardResponse getStudentDashboard(Long studentId);
-
+    StudentDashboardResponse getStudentDashboard(String email);
 }

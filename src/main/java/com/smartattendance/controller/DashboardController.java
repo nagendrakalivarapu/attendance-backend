@@ -1,11 +1,15 @@
+
 package com.smartattendance.controller;
 
 import com.smartattendance.dto.dashboard.AdminDashboardResponse;
 import com.smartattendance.dto.dashboard.StudentDashboardResponse;
 import com.smartattendance.dto.dashboard.TeacherDashboardResponse;
 import com.smartattendance.service.DashboardService;
+
 import lombok.RequiredArgsConstructor;
+
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -21,19 +25,23 @@ public class DashboardController {
         return dashboardService.getAdminDashboard();
     }
 
-    @GetMapping("/teacher/{teacherId}")
+    @GetMapping("/teacher/me")
     @PreAuthorize("hasRole('TEACHER')")
     public TeacherDashboardResponse getTeacherDashboard(
-            @PathVariable Long teacherId) {
+            Authentication authentication) {
 
-        return dashboardService.getTeacherDashboard(teacherId);
+        return dashboardService.getTeacherDashboard(
+                authentication.getName()
+        );
     }
 
-    @GetMapping("/student/{studentId}")
+    @GetMapping("/student/me")
     @PreAuthorize("hasRole('STUDENT')")
     public StudentDashboardResponse getStudentDashboard(
-            @PathVariable Long studentId) {
+            Authentication authentication) {
 
-        return dashboardService.getStudentDashboard(studentId);
+        return dashboardService.getStudentDashboard(
+                authentication.getName()
+        );
     }
 }
