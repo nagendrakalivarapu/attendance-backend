@@ -1,6 +1,8 @@
+
 package com.smartattendance.security.jwt;
 
 import com.smartattendance.security.service.CustomUserDetailsService;
+import com.smartattendance.service.TokenRevocationService;
 
 import io.jsonwebtoken.JwtException;
 
@@ -35,11 +37,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final CustomUserDetailsService userDetailsService;
 
+    private final TokenRevocationService tokenRevocationService;
+
     /**
      * Skip JWT authentication for public authentication endpoints.
-     *
-     * This allows users to log in again even if an old
-     * or expired ACCESS_TOKEN cookie is still present.
      */
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
@@ -72,7 +73,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         // Read JWT from ACCESS_TOKEN cookie.
         String token = extractTokenFromCookie(request);
 
-        // Continue if the cookie is missing or empty.
         if (token == null || token.isBlank()) {
             filterChain.doFilter(request, response);
             return;
@@ -88,11 +88,25 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 return;
             }
 
+            // Check whether this JWT was revoked during logout.
+            if (tokenRevocationService.isTokenRevoked(token)) {
+
+                SecurityContextHolder.clearContext();
+
+                log.debug(
+                        "Revoked JWT rejected for request: {}",
+                        request.getServletPath()
+                );
+
+                filterChain.doFilter(request, response);
+                return;
+            }
+
             // Load user from database.
             UserDetails userDetails =
                     userDetailsService.loadUserByUsername(email);
 
-            // Validate JWT.
+            // Validate JWT and account status.
             if (jwtService.isTokenValid(token, userDetails)) {
 
                 UsernamePasswordAuthenticationToken authentication =
@@ -107,7 +121,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                                 .buildDetails(request)
                 );
 
-                // Set authenticated user in security context.
                 SecurityContextHolder.getContext()
                         .setAuthentication(authentication);
             }
@@ -116,7 +129,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                  | IllegalArgumentException
                  | AuthenticationException exception) {
 
-            // Invalid or expired JWT must not authenticate the request.
             SecurityContextHolder.clearContext();
 
             log.debug(
@@ -125,7 +137,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             );
         }
 
-        // Always continue to the remaining security filters.
         filterChain.doFilter(request, response);
     }
 

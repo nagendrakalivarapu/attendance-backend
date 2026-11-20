@@ -5,6 +5,8 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import jakarta.servlet.http.HttpServletRequest;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
@@ -23,10 +25,6 @@ import lombok.extern.slf4j.Slf4j;
 @RestControllerAdvice
 @Slf4j
 public class GlobalExceptionHandler {
-
-    // =========================================================
-    // COMMON RESPONSE BUILDER
-    // =========================================================
 
     private ResponseEntity<Map<String, Object>> buildResponse(
             HttpStatusCode status,
@@ -54,10 +52,7 @@ public class GlobalExceptionHandler {
         );
     }
 
-    // =========================================================
-    // OTP VERIFICATION ERRORS
-    // =========================================================
-
+    // OTP verification errors
     @ExceptionHandler(OtpVerificationException.class)
     public ResponseEntity<Map<String, Object>> handleOtpException(
             OtpVerificationException ex) {
@@ -68,33 +63,47 @@ public class GlobalExceptionHandler {
         );
     }
 
-    // =========================================================
-    // RESPONSE STATUS EXCEPTIONS
-    // =========================================================
-
+    // Response status exceptions
     @ExceptionHandler(ResponseStatusException.class)
     public ResponseEntity<Map<String, Object>> handleResponseStatusException(
-            ResponseStatusException ex) {
+            ResponseStatusException ex,
+            HttpServletRequest request) {
 
         HttpStatusCode status = ex.getStatusCode();
 
-        HttpStatus resolvedStatus = HttpStatus.resolve(status.value());
+        HttpStatus resolvedStatus =
+                HttpStatus.resolve(status.value());
 
         String error = resolvedStatus != null
                 ? resolvedStatus.getReasonPhrase()
                 : "HTTP Error";
 
-        String message = ex.getReason() != null
-                ? ex.getReason()
-                : "The request could not be processed.";
+        String path = request.getServletPath();
+
+        String message;
+
+        // Hide account-related information in OTP endpoints.
+        if (path.equals("/api/auth/verify-otp")
+                && (status.value() == 401 || status.value() == 403)) {
+
+            message = "Unable to verify OTP. Please check your details.";
+
+        } else if (path.equals("/api/auth/resend-otp")
+                && (status.value() == 401 || status.value() == 403)) {
+
+            message = "Unable to process OTP request.";
+
+        } else {
+
+            message = ex.getReason() != null
+                    ? ex.getReason()
+                    : "The request could not be processed.";
+        }
 
         return buildResponse(status, error, message);
     }
 
-    // =========================================================
-    // VALIDATION ERRORS
-    // =========================================================
-
+    // Validation errors
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<Map<String, Object>> handleValidationException(
             MethodArgumentNotValidException ex) {
@@ -105,10 +114,7 @@ public class GlobalExceptionHandler {
         );
     }
 
-    // =========================================================
-    // MALFORMED JSON REQUESTS
-    // =========================================================
-
+    // Malformed JSON
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<Map<String, Object>> handleMalformedRequest(
             HttpMessageNotReadableException ex) {
@@ -119,10 +125,7 @@ public class GlobalExceptionHandler {
         );
     }
 
-    // =========================================================
-    // INVALID LOGIN CREDENTIALS
-    // =========================================================
-
+    // Invalid login credentials
     @ExceptionHandler(BadCredentialsException.class)
     public ResponseEntity<Map<String, Object>> handleBadCredentials(
             BadCredentialsException ex) {
@@ -133,24 +136,18 @@ public class GlobalExceptionHandler {
         );
     }
 
-    // =========================================================
-    // DISABLED ACCOUNTS
-    // =========================================================
-
+    // Disabled accounts
     @ExceptionHandler(DisabledException.class)
     public ResponseEntity<Map<String, Object>> handleDisabledAccount(
             DisabledException ex) {
 
         return buildResponse(
-                HttpStatus.FORBIDDEN,
-                "Your account is disabled."
+                HttpStatus.UNAUTHORIZED,
+                "Invalid email or password."
         );
     }
 
-    // =========================================================
-    // OTHER AUTHENTICATION FAILURES
-    // =========================================================
-
+    // Authentication failures
     @ExceptionHandler(AuthenticationException.class)
     public ResponseEntity<Map<String, Object>> handleAuthenticationException(
             AuthenticationException ex) {
@@ -161,10 +158,7 @@ public class GlobalExceptionHandler {
         );
     }
 
-    // =========================================================
-    // AUTHORIZATION FAILURES
-    // =========================================================
-
+    // Authorization failures
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<Map<String, Object>> handleAccessDenied(
             AccessDeniedException ex) {
@@ -175,10 +169,7 @@ public class GlobalExceptionHandler {
         );
     }
 
-    // =========================================================
-    // UNEXPECTED RUNTIME EXCEPTIONS
-    // =========================================================
-
+    // Unexpected runtime exceptions
     @ExceptionHandler(RuntimeException.class)
     public ResponseEntity<Map<String, Object>> handleRuntimeException(
             RuntimeException ex) {
@@ -195,10 +186,7 @@ public class GlobalExceptionHandler {
         );
     }
 
-    // =========================================================
-    // UNEXPECTED EXCEPTIONS
-    // =========================================================
-
+    // Unexpected exceptions
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleException(
             Exception ex) {

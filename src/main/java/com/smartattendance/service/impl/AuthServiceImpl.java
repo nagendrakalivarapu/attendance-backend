@@ -15,9 +15,12 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
+
+import java.util.Locale;
 
 @Service
 @RequiredArgsConstructor
@@ -28,20 +31,36 @@ public class AuthServiceImpl implements AuthService {
     private final JwtService jwtService;
     private final OtpService otpService;
 
+    private static final String INVALID_CREDENTIALS =
+            "Invalid email or password.";
+
     // LOGIN
     @Override
     public LoginResponse login(LoginRequest request) {
 
-        // Authenticate email and password.
-        // Disabled accounts are rejected by CustomUserDetailsService.
-        authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(
-                        request.getEmail(),
-                        request.getPassword()
-                )
-        );
+        // Normalize email before authentication.
+        String email = normalizeEmail(request.getEmail());
 
-        User user = findUser(request.getEmail());
+        // Authenticate email and password.
+        // All authentication failures return the same response.
+        try {
+
+            authenticationManager.authenticate(
+                    new UsernamePasswordAuthenticationToken(
+                            email,
+                            request.getPassword()
+                    )
+            );
+
+        } catch (AuthenticationException exception) {
+
+            throw new ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED,
+                    INVALID_CREDENTIALS
+            );
+        }
+
+        User user = findUser(email);
 
         // Additional account-status verification.
         ensureAccountEnabled(user);
@@ -64,8 +83,8 @@ public class AuthServiceImpl implements AuthService {
         // Only STUDENT accounts can log in without OTP.
         if (user.getRole() != UserRole.STUDENT) {
             throw new ResponseStatusException(
-                    HttpStatus.FORBIDDEN,
-                    "Unauthorized account role."
+                    HttpStatus.UNAUTHORIZED,
+                    INVALID_CREDENTIALS
             );
         }
 
@@ -86,7 +105,7 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public LoginResponse verifyOtp(String email, String otp) {
 
-        User user = findUser(email);
+        User user = findUser(normalizeEmail(email));
 
         // Only ADMIN and TEACHER can use OTP login.
         if (user.getRole() != UserRole.ADMIN
@@ -125,7 +144,7 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public void resendOtp(String email) {
 
-        User user = findUser(email);
+        User user = findUser(normalizeEmail(email));
 
         // Only enabled ADMIN and TEACHER accounts can resend OTP.
         if (user.getRole() != UserRole.ADMIN
@@ -149,9 +168,22 @@ public class AuthServiceImpl implements AuthService {
                 .orElseThrow(() ->
                         new ResponseStatusException(
                                 HttpStatus.UNAUTHORIZED,
-                                "Invalid credentials."
+                                INVALID_CREDENTIALS
                         )
                 );
+    }
+
+    // NORMALIZE EMAIL
+    private String normalizeEmail(String email) {
+
+        if (email == null || email.isBlank()) {
+            throw new ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED,
+                    INVALID_CREDENTIALS
+            );
+        }
+
+        return email.trim().toLowerCase(Locale.ROOT);
     }
 
     // CHECK ACCOUNT STATUS
@@ -160,8 +192,8 @@ public class AuthServiceImpl implements AuthService {
         if (!Boolean.TRUE.equals(user.getEnabled())) {
 
             throw new ResponseStatusException(
-                    HttpStatus.FORBIDDEN,
-                    "Account is disabled."
+                    HttpStatus.UNAUTHORIZED,
+                    INVALID_CREDENTIALS
             );
         }
     }

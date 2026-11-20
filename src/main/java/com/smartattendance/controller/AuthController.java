@@ -8,6 +8,7 @@ import com.smartattendance.dto.auth.VerifyOtpRequest;
 import com.smartattendance.security.LoginRateLimiter;
 import com.smartattendance.security.OtpRateLimiter;
 import com.smartattendance.service.AuthService;
+import com.smartattendance.service.TokenRevocationService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 
@@ -23,6 +24,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.web.bind.annotation.*;
+import jakarta.servlet.http.Cookie;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -35,6 +37,8 @@ public class AuthController {
     private final OtpRateLimiter otpRateLimiter;
 
     private final LoginRateLimiter loginRateLimiter;
+
+    private final TokenRevocationService tokenRevocationService;
 
     @Value("${jwt.expiration}")
     private long jwtExpiration;
@@ -130,10 +134,32 @@ public class AuthController {
         ));
     }
 
-    // Logout and clear authentication cookie.
+    // Logout, revoke JWT and clear authentication cookie.
     @PostMapping("/logout")
-    public ResponseEntity<Void> logout() {
+    public ResponseEntity<Void> logout(
+            HttpServletRequest request
+    ) {
 
+        // Read the current ACCESS_TOKEN cookie.
+        String token = null;
+
+        Cookie[] cookies = request.getCookies();
+
+        if (cookies != null) {
+            for (Cookie cookie : cookies) {
+                if (ACCESS_COOKIE.equals(cookie.getName())) {
+                    token = cookie.getValue();
+                    break;
+                }
+            }
+        }
+
+        // Revoke the current JWT.
+        if (token != null && !token.isBlank()) {
+            tokenRevocationService.revokeToken(token);
+        }
+
+        // Clear the browser cookie.
         ResponseCookie cookie = ResponseCookie.from(
                         ACCESS_COOKIE, "")
                 .httpOnly(true)
