@@ -20,7 +20,8 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
-
+import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -37,7 +38,6 @@ public class SecurityConfig {
     @Value("${app.frontend.url}")
     private String frontendUrl;
 
-    // Security filter chain.
     @Bean
     public SecurityFilterChain securityFilterChain(
             HttpSecurity http
@@ -45,15 +45,22 @@ public class SecurityConfig {
 
         http
 
-                // Stateless REST API using Bearer JWT authentication.
-                .csrf(csrf -> csrf.disable())
+                // Enable CSRF protection for cookie-based authentication.
+                .csrf(csrf -> csrf
+                        .csrfTokenRepository(
+                                CookieCsrfTokenRepository.withHttpOnlyFalse()
+                        )
+                        .csrfTokenRequestHandler(
+                                new CsrfTokenRequestAttributeHandler()
+                        )
+                )
 
                 // CORS configuration.
                 .cors(cors -> cors.configurationSource(
                         corsConfigurationSource()
                 ))
 
-                // Disable server-side sessions.
+                // Stateless REST API.
                 .sessionManagement(session ->
                         session.sessionCreationPolicy(
                                 SessionCreationPolicy.STATELESS
@@ -75,6 +82,18 @@ public class SecurityConfig {
                                 "/api/auth/login",
                                 "/api/auth/verify-otp",
                                 "/api/auth/resend-otp"
+                        ).permitAll()
+
+                        // CSRF token endpoint.
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/api/auth/csrf"
+                        ).permitAll()
+
+                        // Public logout endpoint.
+                        .requestMatchers(
+                                HttpMethod.POST,
+                                "/api/auth/logout"
                         ).permitAll()
 
                         // Public profile picture viewing only.
@@ -131,6 +150,7 @@ public class SecurityConfig {
         CorsConfiguration configuration =
                 new CorsConfiguration();
 
+        // Exact frontend origin from application.properties.
         configuration.setAllowedOrigins(
                 List.of(frontendUrl)
         );
@@ -146,16 +166,17 @@ public class SecurityConfig {
                 )
         );
 
+        // Allow CSRF header.
         configuration.setAllowedHeaders(
                 List.of(
-                        "Authorization",
                         "Content-Type",
-                        "Accept"
+                        "Accept",
+                        "X-XSRF-TOKEN"
                 )
         );
 
-        // Bearer JWT authentication does not require cookies.
-        configuration.setAllowCredentials(false);
+        // Required for HttpOnly authentication cookies.
+        configuration.setAllowCredentials(true);
 
         configuration.setMaxAge(3600L);
 

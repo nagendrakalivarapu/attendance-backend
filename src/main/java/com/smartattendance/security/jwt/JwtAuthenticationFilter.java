@@ -1,19 +1,24 @@
-
 package com.smartattendance.security.jwt;
 
 import com.smartattendance.security.service.CustomUserDetailsService;
+
 import io.jsonwebtoken.JwtException;
+
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
+import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
-import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
+
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -24,9 +29,33 @@ import java.io.IOException;
 @Slf4j
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
+    private static final String ACCESS_COOKIE = "ACCESS_TOKEN";
+
     private final JwtService jwtService;
+
     private final CustomUserDetailsService userDetailsService;
 
+    /**
+     * Skip JWT authentication for public authentication endpoints.
+     *
+     * This allows users to log in again even if an old
+     * or expired ACCESS_TOKEN cookie is still present.
+     */
+    @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+
+        String path = request.getServletPath();
+
+        return path.equals("/api/auth/login")
+                || path.equals("/api/auth/verify-otp")
+                || path.equals("/api/auth/resend-otp")
+                || path.equals("/api/auth/csrf")
+                || path.equals("/api/auth/logout");
+    }
+
+    /**
+     * Extract and validate JWT from the HttpOnly cookie.
+     */
     @Override
     protected void doFilterInternal(
             HttpServletRequest request,
@@ -34,69 +63,92 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             FilterChain filterChain
     ) throws ServletException, IOException {
 
-        final String authHeader = request.getHeader("Authorization");
-
-        // Continue if no Bearer token is provided.
-        if (authHeader == null ||
-                !authHeader.regionMatches(true, 0, "Bearer ", 0, 7)) {
-
+        // Do not overwrite an existing authentication.
+        if (SecurityContextHolder.getContext().getAuthentication() != null) {
             filterChain.doFilter(request, response);
             return;
         }
 
-        // Avoid replacing an existing authentication.
-        if (SecurityContextHolder.getContext().getAuthentication() != null) {
+        // Read JWT from ACCESS_TOKEN cookie.
+        String token = extractTokenFromCookie(request);
+
+        // Continue if the cookie is missing or empty.
+        if (token == null || token.isBlank()) {
             filterChain.doFilter(request, response);
             return;
         }
 
         try {
 
-            String token = authHeader.substring(7).trim();
+            // Extract username/email from JWT.
+            String email = jwtService.extractUsername(token);
 
-            if (token.isEmpty()) {
+            if (email == null || email.isBlank()) {
                 filterChain.doFilter(request, response);
                 return;
             }
 
-            // Extract username from signed JWT.
-            String email = jwtService.extractUsername(token);
+            // Load user from database.
+            UserDetails userDetails =
+                    userDetailsService.loadUserByUsername(email);
 
-            if (email != null) {
+            // Validate JWT.
+            if (jwtService.isTokenValid(token, userDetails)) {
 
-                UserDetails userDetails =
-                        userDetailsService.loadUserByUsername(email);
+                UsernamePasswordAuthenticationToken authentication =
+                        new UsernamePasswordAuthenticationToken(
+                                userDetails,
+                                null,
+                                userDetails.getAuthorities()
+                        );
 
-                // Validate JWT and account status.
-                if (jwtService.isTokenValid(token, userDetails)) {
+                authentication.setDetails(
+                        new WebAuthenticationDetailsSource()
+                                .buildDetails(request)
+                );
 
-                    UsernamePasswordAuthenticationToken authentication =
-                            new UsernamePasswordAuthenticationToken(
-                                    userDetails,
-                                    null,
-                                    userDetails.getAuthorities()
-                            );
-
-                    authentication.setDetails(
-                            new WebAuthenticationDetailsSource()
-                                    .buildDetails(request)
-                    );
-
-                    SecurityContextHolder.getContext()
-                            .setAuthentication(authentication);
-                }
+                // Set authenticated user in security context.
+                SecurityContextHolder.getContext()
+                        .setAuthentication(authentication);
             }
 
-        } catch (JwtException |
-                 IllegalArgumentException |
-                 UsernameNotFoundException e) {
+        } catch (JwtException
+                 | IllegalArgumentException
+                 | AuthenticationException exception) {
 
-            // Never expose JWT details or user information in logs.
+            // Invalid or expired JWT must not authenticate the request.
             SecurityContextHolder.clearContext();
 
-            log.debug("JWT authentication failed.");
+            log.debug(
+                    "JWT authentication failed for request: {}",
+                    request.getServletPath()
+            );
         }
 
+        // Always continue to the remaining security filters.
         filterChain.doFilter(request, response);
+    }
+
+    /**
+     * Extract ACCESS_TOKEN from request cookies.
+     */
+    private String extractTokenFromCookie(
+            HttpServletRequest request
+    ) {
+
+        Cookie[] cookies = request.getCookies();
+
+        if (cookies == null) {
+            return null;
+        }
+
+        for (Cookie cookie : cookies) {
+
+            if (ACCESS_COOKIE.equals(cookie.getName())) {
+                return cookie.getValue();
+            }
+        }
+
+        return null;
     }
 }

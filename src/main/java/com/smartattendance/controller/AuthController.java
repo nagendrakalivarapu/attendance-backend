@@ -5,50 +5,92 @@ import com.smartattendance.dto.auth.LoginRequest;
 import com.smartattendance.dto.auth.LoginResponse;
 import com.smartattendance.dto.auth.ResendOtpRequest;
 import com.smartattendance.dto.auth.VerifyOtpRequest;
+import com.smartattendance.security.LoginRateLimiter;
+import com.smartattendance.security.OtpRateLimiter;
 import com.smartattendance.service.AuthService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+
+import java.time.Duration;
 import java.util.Map;
+
 import lombok.RequiredArgsConstructor;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.web.csrf.CsrfToken;
+import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
 public class AuthController {
 
-    private final AuthService authService;
+    private static final String ACCESS_COOKIE = "ACCESS_TOKEN";
 
-    // LOGIN
+    private final AuthService authService;
+    private final OtpRateLimiter otpRateLimiter;
+
+    private final LoginRateLimiter loginRateLimiter;
+
+    @Value("${jwt.expiration}")
+    private long jwtExpiration;
+
+    @Value("${app.cookie.secure:false}")
+    private boolean secureCookie;
+
+    @Value("${app.cookie.same-site:Lax}")
+    private String sameSite;
+
+    // Login.
     @PostMapping("/login")
     public ResponseEntity<LoginResponse> login(
-            @Valid @RequestBody LoginRequest request) {
+            @Valid @RequestBody LoginRequest request,
+            HttpServletRequest httpRequest
+    ) {
 
-        return ResponseEntity.ok(
-                authService.login(request)
+        loginRateLimiter.checkAndRecord(
+                request.getEmail(),
+                httpRequest.getRemoteAddr()
         );
+
+        LoginResponse response = authService.login(request);
+
+        return createAuthenticatedResponse(response);
     }
 
-    // VERIFY OTP
+    // OTP verification.
     @PostMapping("/verify-otp")
     public ResponseEntity<LoginResponse> verifyOtp(
-            @Valid @RequestBody VerifyOtpRequest request) {
+            @Valid @RequestBody VerifyOtpRequest request,
+            HttpServletRequest httpRequest
+    ) {
 
-        return ResponseEntity.ok(
-                authService.verifyOtp(
-                        request.getEmail(),
-                        request.getOtp()
-                )
+        otpRateLimiter.checkVerification(
+                httpRequest.getRemoteAddr()
         );
+
+        LoginResponse response = authService.verifyOtp(
+                request.getEmail(),
+                request.getOtp()
+        );
+
+        return createAuthenticatedResponse(response);
     }
 
-    // RESEND OTP
+    // Resend OTP.
     @PostMapping("/resend-otp")
     public ResponseEntity<Map<String, String>> resendOtp(
-            @Valid @RequestBody ResendOtpRequest request) {
+            @Valid @RequestBody ResendOtpRequest request,
+            HttpServletRequest httpRequest
+    ) {
+
+        otpRateLimiter.checkResend(
+                httpRequest.getRemoteAddr()
+        );
 
         authService.resendOtp(request.getEmail());
 
@@ -58,5 +100,79 @@ public class AuthController {
                         "A new OTP has been sent to your registered email."
                 )
         );
+    }
+
+    // Get CSRF token.
+    @GetMapping("/csrf")
+    public ResponseEntity<Map<String, String>> csrf(
+            CsrfToken csrfToken) {
+
+        return ResponseEntity.ok(
+                Map.of("token", csrfToken.getToken())
+        );
+    }
+
+    // Get currently authenticated user.
+    @GetMapping("/me")
+    public ResponseEntity<Map<String, String>> currentUser(
+            Authentication authentication) {
+
+        String role = authentication.getAuthorities()
+                .stream()
+                .findFirst()
+                .map(authority ->
+                        authority.getAuthority().replace("ROLE_", ""))
+                .orElse("");
+
+        return ResponseEntity.ok(Map.of(
+                "email", authentication.getName(),
+                "role", role
+        ));
+    }
+
+    // Logout and clear authentication cookie.
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout() {
+
+        ResponseCookie cookie = ResponseCookie.from(
+                        ACCESS_COOKIE, "")
+                .httpOnly(true)
+                .secure(secureCookie)
+                .path("/api")
+                .sameSite(sameSite)
+                .maxAge(Duration.ZERO)
+                .build();
+
+        return ResponseEntity.noContent()
+                .header(HttpHeaders.SET_COOKIE, cookie.toString())
+                .build();
+    }
+
+    // Create authentication cookie after successful login or OTP.
+    private ResponseEntity<LoginResponse> createAuthenticatedResponse(
+            LoginResponse response) {
+
+        String token = response.getToken();
+
+        // OTP is still pending for admin/teacher login.
+        if (token == null || token.isBlank()) {
+            return ResponseEntity.ok(response);
+        }
+
+        ResponseCookie cookie = ResponseCookie.from(
+                        ACCESS_COOKIE, token)
+                .httpOnly(true)
+                .secure(secureCookie)
+                .path("/api")
+                .sameSite(sameSite)
+                .maxAge(Duration.ofMillis(jwtExpiration))
+                .build();
+
+        // Never expose JWT in the response JSON.
+        response.setToken(null);
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, cookie.toString())
+                .body(response);
     }
 }
