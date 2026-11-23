@@ -8,6 +8,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 
+import jakarta.annotation.PostConstruct;
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -36,13 +38,43 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
 
     private static final long MAX_IMAGE_SIZE = 5L * 1024 * 1024;
 
+    private static final String FACE_API_KEY_HEADER = "X-Face-API-Key";
+
     private final RestTemplate restTemplate;
 
     @Value("${face.api.url}")
     private String faceApiUrl;
 
-    @Value("${face.api.key}")
+    @Value("${face.api.key:}")
     private String faceApiKey;
+
+    // =====================================================
+    // STARTUP CONFIGURATION VALIDATION
+    // =====================================================
+
+    @PostConstruct
+    public void validateFaceApiConfiguration() {
+
+        if (faceApiUrl == null || faceApiUrl.isBlank()) {
+            throw new IllegalStateException(
+                    "Face recognition API URL is not configured."
+            );
+        }
+
+        if (faceApiKey == null
+                || faceApiKey.isBlank()
+                || faceApiKey.trim().length() < 32) {
+
+            throw new IllegalStateException(
+                    "Face recognition API key is missing or invalid."
+            );
+        }
+
+        faceApiUrl = faceApiUrl.trim().replaceAll("/+$", "");
+        faceApiKey = faceApiKey.trim();
+
+        log.info("Face recognition API configuration validated.");
+    }
 
     // =====================================================
     // REGISTER FACE
@@ -76,7 +108,6 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
 
             if (!response.getStatusCode().is2xxSuccessful()
                     || response.getBody() == null) {
-
                 return false;
             }
 
@@ -86,7 +117,6 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
                 return false;
             }
 
-            // Ensure FastAPI registered the requested student.
             Object returnedStudentId = responseBody.get("studentId");
 
             if (!(returnedStudentId instanceof String returnedId)
@@ -185,8 +215,6 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
 
     private HttpHeaders createHeaders() {
 
-        String apiKey = getFaceApiKey();
-
         HttpHeaders headers = new HttpHeaders();
 
         headers.setContentType(MediaType.MULTIPART_FORM_DATA);
@@ -196,8 +224,8 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
         );
 
         headers.set(
-                "X-Face-API-Key",
-                apiKey
+                FACE_API_KEY_HEADER,
+                getFaceApiKey()
         );
 
         return headers;
@@ -212,8 +240,9 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
 
         String contentType = image.getContentType();
 
-        if (!MediaType.IMAGE_JPEG_VALUE.equalsIgnoreCase(contentType)
-                && !MediaType.IMAGE_PNG_VALUE.equalsIgnoreCase(contentType)) {
+        if (contentType == null
+                || (!MediaType.IMAGE_JPEG_VALUE.equalsIgnoreCase(contentType)
+                && !MediaType.IMAGE_PNG_VALUE.equalsIgnoreCase(contentType))) {
 
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
@@ -224,6 +253,20 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
         try {
 
             byte[] imageBytes = image.getBytes();
+
+            if (imageBytes.length == 0) {
+                throw new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST,
+                        "Image file is empty."
+                );
+            }
+
+            if (imageBytes.length > MAX_IMAGE_SIZE) {
+                throw new ResponseStatusException(
+                        HttpStatus.PAYLOAD_TOO_LARGE,
+                        "Image must not exceed 5 MB."
+                );
+            }
 
             ByteArrayResource resource =
                     new ByteArrayResource(imageBytes) {
@@ -256,7 +299,7 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
     }
 
     // =====================================================
-    // VALIDATION
+    // STUDENT ID VALIDATION
     // =====================================================
 
     private void validateStudentId(String registrationNumber) {
@@ -270,6 +313,10 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
             );
         }
     }
+
+    // =====================================================
+    // IMAGE VALIDATION
+    // =====================================================
 
     private void validateImagePresent(MultipartFile image) {
 
@@ -303,7 +350,7 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
             );
         }
 
-        return faceApiUrl.trim().replaceAll("/+$", "");
+        return faceApiUrl;
     }
 
     // =====================================================
@@ -314,14 +361,14 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
 
         if (faceApiKey == null
                 || faceApiKey.isBlank()
-                || faceApiKey.trim().length() < 32) {
+                || faceApiKey.length() < 32) {
 
             throw new IllegalStateException(
                     "Face recognition API key is not configured correctly."
             );
         }
 
-        return faceApiKey.trim();
+        return faceApiKey;
     }
 
     // =====================================================
