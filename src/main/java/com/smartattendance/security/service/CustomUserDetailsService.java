@@ -1,4 +1,3 @@
-
 package com.smartattendance.security.service;
 
 import com.smartattendance.entity.User;

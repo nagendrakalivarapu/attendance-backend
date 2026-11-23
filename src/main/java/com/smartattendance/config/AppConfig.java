@@ -1,4 +1,3 @@
-
 package com.smartattendance.config;
 
 import org.springframework.context.annotation.Bean;

@@ -21,7 +21,6 @@ public class AttendanceSessionController {
 
     private final AttendanceSessionService attendanceSessionService;
 
-
     // ============================================================
     // START ATTENDANCE SESSION
     // ============================================================
@@ -67,7 +66,6 @@ public class AttendanceSessionController {
                 attendanceSessionService.getSession(id)
         );
     }
-
 
     // ============================================================
     // CLOSE ATTENDANCE SESSION

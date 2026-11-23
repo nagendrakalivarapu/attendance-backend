@@ -1,4 +1,3 @@
-
 package com.smartattendance.repository;
 
 import com.smartattendance.entity.RevokedToken;

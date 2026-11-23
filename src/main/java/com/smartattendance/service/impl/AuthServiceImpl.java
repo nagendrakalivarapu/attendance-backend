@@ -1,4 +1,3 @@
-
 package com.smartattendance.service.impl;
 
 import com.smartattendance.dto.auth.LoginRequest;

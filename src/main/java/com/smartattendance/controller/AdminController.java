@@ -7,8 +7,17 @@ import com.smartattendance.service.PrimaryAdminService;
 import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 @RestController
 @RequestMapping("/api/admin")
@@ -17,7 +26,6 @@ public class AdminController {
 
     private final AdminService adminService;
     private final PrimaryAdminService primaryAdminService;
-
 
     // ============================================================
     // GET ALL ADMINS
@@ -32,7 +40,6 @@ public class AdminController {
 
         return adminService.getAllAdmins();
     }
-
 
     // ============================================================
     // GET ADMIN
@@ -49,7 +56,6 @@ public class AdminController {
         return adminService.getAdminById(id);
     }
 
-
     // ============================================================
     // CREATE ADMIN
     // PRIMARY ADMIN ONLY
@@ -64,7 +70,6 @@ public class AdminController {
 
         return adminService.createAdmin(request);
     }
-
 
     // ============================================================
     // UPDATE ADMIN
@@ -85,7 +90,6 @@ public class AdminController {
         );
     }
 
-
     // ============================================================
     // DELETE ADMIN
     // PRIMARY ADMIN ONLY
@@ -103,7 +107,6 @@ public class AdminController {
         return "Admin deleted successfully.";
     }
 
-
     // ============================================================
     // PRIMARY ADMIN AUTHORIZATION
     // ============================================================
@@ -114,7 +117,8 @@ public class AdminController {
         if (authentication == null ||
                 !authentication.isAuthenticated()) {
 
-            throw new RuntimeException(
+            throw new ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED,
                     "Authentication required."
             );
         }
@@ -124,7 +128,8 @@ public class AdminController {
 
         if (!primaryAdminService.isPrimaryAdmin(email)) {
 
-            throw new RuntimeException(
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
                     "Only the primary admin can manage admins."
             );
         }

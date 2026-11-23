@@ -9,9 +9,11 @@ import com.smartattendance.service.AdminService;
 import com.smartattendance.service.PrimaryAdminService;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 @Service
 @RequiredArgsConstructor
@@ -20,7 +22,6 @@ public class AdminServiceImpl implements AdminService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final PrimaryAdminService primaryAdminService;
-
 
     // ============================================================
     // GET ALL ADMINS
@@ -38,7 +39,6 @@ public class AdminServiceImpl implements AdminService {
                 .toList();
     }
 
-
     // ============================================================
     // GET ADMIN BY ID
     // ============================================================
@@ -50,7 +50,6 @@ public class AdminServiceImpl implements AdminService {
 
         return mapToResponse(admin);
     }
-
 
     // ============================================================
     // CREATE ADMIN
@@ -64,7 +63,8 @@ public class AdminServiceImpl implements AdminService {
         if (userRepository.existsByEmail(
                 request.getEmail())) {
 
-            throw new RuntimeException(
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
                     "Email already exists."
             );
         }
@@ -86,7 +86,6 @@ public class AdminServiceImpl implements AdminService {
         return mapToResponse(admin);
     }
 
-
     // ============================================================
     // UPDATE ADMIN
     // ============================================================
@@ -105,12 +104,12 @@ public class AdminServiceImpl implements AdminService {
         if (primaryAdminService.isPrimaryAdmin(
                 admin.getEmail())) {
 
-            throw new RuntimeException(
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
                     "Primary admin must be managed through "
-                            + "application.properties."
+                            + "environment configuration."
             );
         }
-
 
         // --------------------------------------------------------
         // CHECK EMAIL
@@ -124,7 +123,8 @@ public class AdminServiceImpl implements AdminService {
             if (userRepository.existsByEmail(
                     request.getEmail())) {
 
-                throw new RuntimeException(
+                throw new ResponseStatusException(
+                        HttpStatus.CONFLICT,
                         "Email already exists."
                 );
             }
@@ -133,7 +133,6 @@ public class AdminServiceImpl implements AdminService {
                     request.getEmail()
             );
         }
-
 
         // --------------------------------------------------------
         // UPDATE NAME
@@ -146,7 +145,6 @@ public class AdminServiceImpl implements AdminService {
                     request.getFullName()
             );
         }
-
 
         // --------------------------------------------------------
         // UPDATE PASSWORD
@@ -167,7 +165,6 @@ public class AdminServiceImpl implements AdminService {
         return mapToResponse(admin);
     }
 
-
     // ============================================================
     // DELETE ADMIN
     // ============================================================
@@ -185,14 +182,14 @@ public class AdminServiceImpl implements AdminService {
         if (primaryAdminService.isPrimaryAdmin(
                 admin.getEmail())) {
 
-            throw new RuntimeException(
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
                     "Primary admin cannot be deleted."
             );
         }
 
         userRepository.delete(admin);
     }
-
 
     // ============================================================
     // FIND ADMIN
@@ -203,21 +200,22 @@ public class AdminServiceImpl implements AdminService {
         User admin = userRepository
                 .findById(id)
                 .orElseThrow(() ->
-                        new RuntimeException(
+                        new ResponseStatusException(
+                                HttpStatus.NOT_FOUND,
                                 "Admin not found."
                         )
                 );
 
         if (admin.getRole() != UserRole.ADMIN) {
 
-            throw new RuntimeException(
-                    "The selected user is not an admin."
+            throw new ResponseStatusException(
+                    HttpStatus.NOT_FOUND,
+                    "Admin not found."
             );
         }
 
         return admin;
     }
-
 
     // ============================================================
     // MAP ENTITY TO RESPONSE

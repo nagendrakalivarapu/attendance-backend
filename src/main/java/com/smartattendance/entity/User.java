@@ -1,4 +1,3 @@
-
 package com.smartattendance.entity;
 
 import com.smartattendance.enums.UserRole;

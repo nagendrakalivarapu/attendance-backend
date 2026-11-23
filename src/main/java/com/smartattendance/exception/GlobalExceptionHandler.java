@@ -1,4 +1,3 @@
-
 package com.smartattendance.exception;
 
 import java.time.Instant;

@@ -1,4 +1,3 @@
-
 package com.smartattendance.security;
 
 import org.springframework.http.HttpStatus;

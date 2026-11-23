@@ -1,4 +1,3 @@
-
 package com.smartattendance.service.impl;
 
 import com.smartattendance.dto.request.StudentRequest;
@@ -359,7 +358,6 @@ public class StudentServiceImpl implements StudentService {
     // IMAGE VALIDATION
     // ------------------------------------------------------------
 
-
     private void validateImage(MultipartFile image) {
 
         if (image == null || image.isEmpty()) {
@@ -461,7 +459,6 @@ public class StudentServiceImpl implements StudentService {
 
         throw badRequest("Unsupported image type.");
     }
-
 
     // ------------------------------------------------------------
     // FILE CLEANUP

@@ -1,4 +1,3 @@
-
 package com.smartattendance.dto.request;
 
 import jakarta.validation.constraints.DecimalMax;

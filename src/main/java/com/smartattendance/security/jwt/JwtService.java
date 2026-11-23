@@ -1,4 +1,3 @@
-
 package com.smartattendance.security.jwt;
 
 import io.jsonwebtoken.Claims;

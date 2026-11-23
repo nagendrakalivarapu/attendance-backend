@@ -1,4 +1,3 @@
-
 package com.smartattendance.service.impl;
 
 import com.smartattendance.attendance.entity.AttendanceSession;
@@ -138,7 +137,6 @@ public class AttendanceServiceImpl implements AttendanceService {
         }
     }
 
-
     private void verifyStudentOrTeacherAccess(
             Long studentId,
             String email,
@@ -173,7 +171,6 @@ public class AttendanceServiceImpl implements AttendanceService {
             );
         }
     }
-
 
     private void verifyStudentTeacherOrAdminAccess(
             Long studentId,

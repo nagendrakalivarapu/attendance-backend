@@ -1,4 +1,3 @@
-
 package com.smartattendance.security;
 
 import org.springframework.http.HttpStatus;
@@ -44,8 +43,7 @@ public class LoginRateLimiter {
                 : email.trim().toLowerCase(Locale.ROOT);
 
         String ipKey = "IP:" + ip;
-        String accountKey = "ACCOUNT:" + ip
-                + ":" + normalizedEmail;
+        String accountKey = "ACCOUNT:" + normalizedEmail;
 
         checkLimit(
                 ipKey,

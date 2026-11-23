@@ -16,17 +16,19 @@ import com.smartattendance.repository.AttendanceRepository;
 import com.smartattendance.repository.CourseRepository;
 import com.smartattendance.repository.EnrollmentRepository;
 import com.smartattendance.service.AttendanceEmailService;
-import jakarta.mail.internet.MimeMessage;
 import jakarta.mail.MessagingException;
+import jakarta.mail.internet.MimeMessage;
 import java.util.ArrayList;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
+import org.springframework.mail.MailException;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
-import org.springframework.mail.MailException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 @Service
 @RequiredArgsConstructor
@@ -47,6 +49,8 @@ public class AttendanceEmailServiceImpl
     @Value("${spring.mail.username:}")
     private String mailUsername;
 
+    @Value("${spring.mail.password:}")
+    private String mailPassword;
 
     // ============================================================
     // PREVIEW
@@ -90,7 +94,6 @@ public class AttendanceEmailServiceImpl
                 .build();
     }
 
-
     // ============================================================
     // SEND EMAILS
     // ============================================================
@@ -102,11 +105,14 @@ public class AttendanceEmailServiceImpl
 
         validateRequest(request);
 
-        if (mailUsername == null || mailUsername.isBlank()) {
+        if (mailUsername == null || mailUsername.isBlank()
+                || mailPassword == null || mailPassword.isBlank()) {
 
-            throw new RuntimeException(
-                    "MAIL_USERNAME is not configured. " +
-                    "Configure the SMTP email account before sending."
+            throw new ResponseStatusException(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "SMTP credentials are not configured. "
+                            + "Configure MAIL_USERNAME and MAIL_PASSWORD "
+                            + "before sending."
             );
         }
 
@@ -116,7 +122,6 @@ public class AttendanceEmailServiceImpl
         List<String> sentEmails = new ArrayList<>();
 
         List<String> failedEmails = new ArrayList<>();
-
 
         for (AttendanceEmailStudentResponse student
                 : preview.getStudents()) {
@@ -149,7 +154,6 @@ public class AttendanceEmailServiceImpl
             }
         }
 
-
         String message;
 
         if (failedEmails.isEmpty()) {
@@ -170,7 +174,6 @@ public class AttendanceEmailServiceImpl
                     "Some emails failed.";
         }
 
-
         return AttendanceEmailSendResponse.builder()
                 .totalStudents(preview.getStudents().size())
                 .sentCount(sentEmails.size())
@@ -180,7 +183,6 @@ public class AttendanceEmailServiceImpl
                 .message(message)
                 .build();
     }
-
 
     // ============================================================
     // BUILD STUDENT REPORTS
@@ -206,7 +208,6 @@ public class AttendanceEmailServiceImpl
         List<AttendanceEmailStudentResponse> response =
                 new ArrayList<>();
 
-
         for (Enrollment enrollment : enrollments) {
 
             if (enrollment.getStatus() != null &&
@@ -222,7 +223,6 @@ public class AttendanceEmailServiceImpl
                 continue;
             }
 
-
             // Department filter
             if (student.getDepartment() == null ||
                     !student.getDepartment()
@@ -233,7 +233,6 @@ public class AttendanceEmailServiceImpl
                 continue;
             }
 
-
             // Semester filter
             if (student.getSemester() == null ||
                     !student.getSemester()
@@ -241,7 +240,6 @@ public class AttendanceEmailServiceImpl
 
                 continue;
             }
-
 
             // Section filter
             if (student.getSection() == null ||
@@ -253,7 +251,6 @@ public class AttendanceEmailServiceImpl
                 continue;
             }
 
-
             long presentCount =
                     attendanceRepository
                             .countByStudentIdAndCourseIdAndStatus(
@@ -261,7 +258,6 @@ public class AttendanceEmailServiceImpl
                                     course.getId(),
                                     AttendanceStatus.PRESENT
                             );
-
 
             long absentCount =
                     attendanceRepository
@@ -271,9 +267,7 @@ public class AttendanceEmailServiceImpl
                                     AttendanceStatus.ABSENT
                             );
 
-
             double attendancePercentage = 0.0;
-
 
             if (totalSessions > 0) {
 
@@ -282,12 +276,10 @@ public class AttendanceEmailServiceImpl
                                 / totalSessions) * 100.0;
             }
 
-
             attendancePercentage =
                     Math.round(
                             attendancePercentage * 100.0
                     ) / 100.0;
-
 
             String status =
                     attendancePercentage
@@ -295,14 +287,12 @@ public class AttendanceEmailServiceImpl
                             ? "LOW_ATTENDANCE"
                             : "GOOD";
 
-
             String email = null;
 
             if (student.getUser() != null) {
 
                 email = student.getUser().getEmail();
             }
-
 
             String studentName =
                     student.getRegistrationNumber();
@@ -313,7 +303,6 @@ public class AttendanceEmailServiceImpl
                 studentName =
                         student.getUser().getFullName();
             }
-
 
             response.add(
                     AttendanceEmailStudentResponse.builder()
@@ -366,10 +355,8 @@ public class AttendanceEmailServiceImpl
             );
         }
 
-
         return response;
     }
-
 
     // ============================================================
     // SEND INDIVIDUAL EMAIL
@@ -384,7 +371,6 @@ public class AttendanceEmailServiceImpl
         MimeMessage message =
                 mailSender.createMimeMessage();
 
-
         MimeMessageHelper helper =
                 new MimeMessageHelper(
                         message,
@@ -392,11 +378,9 @@ public class AttendanceEmailServiceImpl
                         "UTF-8"
                 );
 
-
         helper.setFrom(mailUsername);
 
         helper.setTo(student.getEmail());
-
 
         helper.setSubject(
                 "Attendance Report - "
@@ -404,7 +388,6 @@ public class AttendanceEmailServiceImpl
                         + " - "
                         + courseName
         );
-
 
         helper.setText(
                 buildEmailHtml(
@@ -415,10 +398,8 @@ public class AttendanceEmailServiceImpl
                 true
         );
 
-
         mailSender.send(message);
     }
-
 
     // ============================================================
     // EMAIL HTML
@@ -433,18 +414,15 @@ public class AttendanceEmailServiceImpl
                 "LOW_ATTENDANCE"
                         .equals(student.getStatus());
 
-
         String statusText =
                 lowAttendance
                         ? "LOW ATTENDANCE"
                         : "GOOD ATTENDANCE";
 
-
         String statusColor =
                 lowAttendance
                         ? "#b42318"
                         : "#067647";
-
 
         return """
                 <!DOCTYPE html>
@@ -681,7 +659,6 @@ public class AttendanceEmailServiceImpl
                 );
     }
 
-
     // ============================================================
     // COURSE VALIDATION
     // ============================================================
@@ -696,24 +673,24 @@ public class AttendanceEmailServiceImpl
                                 request.getDepartment()
                         )) {
 
-            throw new RuntimeException(
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
                     "Selected course does not belong to department "
                             + request.getDepartment()
             );
         }
 
-
         if (course.getSemester() == null ||
                 !course.getSemester()
                         .equals(request.getSemester())) {
 
-            throw new RuntimeException(
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
                     "Selected course does not belong to semester "
                             + request.getSemester()
             );
         }
     }
-
 
     // ============================================================
     // GET COURSE
@@ -724,13 +701,12 @@ public class AttendanceEmailServiceImpl
         return courseRepository
                 .findById(courseId)
                 .orElseThrow(() ->
-                        new RuntimeException(
-                                "Course not found with ID: "
-                                        + courseId
+                        new ResponseStatusException(
+                                HttpStatus.NOT_FOUND,
+                                "Course not found."
                         )
                 );
     }
-
 
     // ============================================================
     // REQUEST VALIDATION
@@ -741,55 +717,56 @@ public class AttendanceEmailServiceImpl
 
         if (request == null) {
 
-            throw new RuntimeException(
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
                     "Attendance email request is required."
             );
         }
 
-
         if (request.getCourseId() == null) {
 
-            throw new RuntimeException(
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
                     "Course ID is required."
             );
         }
 
-
         if (request.getDepartment() == null ||
                 request.getDepartment().isBlank()) {
 
-            throw new RuntimeException(
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
                     "Department is required."
             );
         }
 
-
         if (request.getSemester() == null) {
 
-            throw new RuntimeException(
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
                     "Semester is required."
             );
         }
 
-
         if (request.getSection() == null ||
                 request.getSection().isBlank()) {
 
-            throw new RuntimeException(
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
                     "Section is required."
             );
         }
 
-
-        if (request.getThreshold() < 0 ||
+        if (!Double.isFinite(request.getThreshold()) ||
+                request.getThreshold() < 0 ||
                 request.getThreshold() > 100) {
 
-            throw new RuntimeException(
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
                     "Attendance threshold must be between 0 and 100."
             );
         }
     }
-
 
     // ============================================================
     // HTML ESCAPE

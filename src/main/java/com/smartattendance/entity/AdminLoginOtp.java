@@ -1,4 +1,3 @@
-
 package com.smartattendance.entity;
 
 import jakarta.persistence.Column;

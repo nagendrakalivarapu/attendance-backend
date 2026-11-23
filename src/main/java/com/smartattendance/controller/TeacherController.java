@@ -1,4 +1,3 @@
-
 package com.smartattendance.controller;
 
 import com.smartattendance.dto.request.TeacherRequest;

@@ -1,4 +1,3 @@
-
 package com.smartattendance.exception;
 
 public class OtpVerificationException extends RuntimeException {

@@ -1,4 +1,3 @@
-
 package com.smartattendance.dto.auth;
 
 import jakarta.validation.constraints.Email;

@@ -8,6 +8,7 @@ import com.smartattendance.entity.Enrollment;
 import com.smartattendance.entity.Teacher;
 import com.smartattendance.enums.AttendanceSessionStatus;
 import com.smartattendance.enums.AttendanceStatus;
+import com.smartattendance.enums.EnrollmentStatus;
 import com.smartattendance.repository.AttendanceRepository;
 import com.smartattendance.repository.CourseRepository;
 import com.smartattendance.repository.EnrollmentRepository;
@@ -16,10 +17,12 @@ import com.smartattendance.service.TeacherDashboardService;
 import java.util.ArrayList;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 @Service
 @RequiredArgsConstructor
@@ -51,8 +54,9 @@ public class TeacherDashboardServiceImpl
         if (authentication == null ||
                 !authentication.isAuthenticated()) {
 
-            throw new RuntimeException(
-                    "User is not authenticated"
+            throw new ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED,
+                    "User is not authenticated."
             );
         }
 
@@ -64,12 +68,10 @@ public class TeacherDashboardServiceImpl
         Teacher teacher =
                 teacherRepository
                         .findByUser_Email(email)
-                        .orElseThrow(() ->
-                                new RuntimeException(
-                                        "Teacher not found for email: "
-                                                + email
-                                )
-                        );
+                        .orElseThrow(() -> new ResponseStatusException(
+                                HttpStatus.NOT_FOUND,
+                                "Teacher account not found."
+                        ));
 
         /*
          * Find all courses belonging to this teacher.
@@ -102,10 +104,8 @@ public class TeacherDashboardServiceImpl
                             .findByCourseId(courseId)
                             .stream()
                             .filter(enrollment ->
-                                    enrollment.getStatus() != null &&
                                     enrollment.getStatus()
-                                            .name()
-                                            .equals("ACTIVE")
+                                            == EnrollmentStatus.ACTIVE
                             )
                             .count();
 
@@ -159,10 +159,8 @@ public class TeacherDashboardServiceImpl
 
             for (Enrollment enrollment : enrollments) {
 
-                if (enrollment.getStatus() == null ||
-                        !enrollment.getStatus()
-                                .name()
-                                .equals("ACTIVE")) {
+                if (enrollment.getStatus()
+                        != EnrollmentStatus.ACTIVE) {
 
                     continue;
                 }

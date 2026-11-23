@@ -1,4 +1,3 @@
-
 package com.smartattendance.security.jwt;
 
 import com.smartattendance.security.service.CustomUserDetailsService;

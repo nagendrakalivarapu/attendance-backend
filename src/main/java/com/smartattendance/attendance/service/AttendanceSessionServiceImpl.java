@@ -13,6 +13,7 @@ import com.smartattendance.entity.Student;
 import com.smartattendance.entity.Teacher;
 import com.smartattendance.enums.AttendanceSessionStatus;
 import com.smartattendance.enums.AttendanceStatus;
+import com.smartattendance.enums.EnrollmentStatus;
 import com.smartattendance.repository.AttendanceRepository;
 import com.smartattendance.repository.CourseRepository;
 import com.smartattendance.repository.EnrollmentRepository;
@@ -20,15 +21,18 @@ import com.smartattendance.repository.StudentRepository;
 import com.smartattendance.repository.TeacherRepository;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.*;
-
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import com.smartattendance.enums.EnrollmentStatus;
-import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
 @Service
@@ -43,7 +47,6 @@ public class AttendanceSessionServiceImpl
     private final AttendanceRepository attendanceRepository;
     private final EnrollmentRepository enrollmentRepository;
     private final StudentRepository studentRepository;
-
 
     // ============================================================
     // START ATTENDANCE SESSION
@@ -65,11 +68,11 @@ public class AttendanceSessionServiceImpl
         if (authentication == null ||
                 !authentication.isAuthenticated()) {
 
-            throw new RuntimeException(
-                    "User is not authenticated"
+            throw new ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED,
+                    "User is not authenticated."
             );
         }
-
 
         // --------------------------------------------------------
         // 2. Get logged-in teacher email from JWT
@@ -80,24 +83,22 @@ public class AttendanceSessionServiceImpl
         Teacher teacher =
                 teacherRepository
                         .findByUser_Email(email)
-                        .orElseThrow(() ->
-                                new RuntimeException(
-                                        "Teacher not found for logged-in user"
-                                )
-                        );
-
+                        .orElseThrow(() -> new ResponseStatusException(
+                                HttpStatus.NOT_FOUND,
+                                "Teacher account not found."
+                        ));
 
         // --------------------------------------------------------
         // 3. Validate course ID
         // --------------------------------------------------------
 
-        if (request.getCourseId() == null) {
+        if (request == null || request.getCourseId() == null) {
 
-            throw new RuntimeException(
-                    "Course ID is required"
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Course ID is required."
             );
         }
-
 
         // --------------------------------------------------------
         // 4. Find course
@@ -106,13 +107,10 @@ public class AttendanceSessionServiceImpl
         Course course =
                 courseRepository
                         .findById(request.getCourseId())
-                        .orElseThrow(() ->
-                                new RuntimeException(
-                                        "Course not found with ID: "
-                                                + request.getCourseId()
-                                )
-                        );
-
+                        .orElseThrow(() -> new ResponseStatusException(
+                                HttpStatus.NOT_FOUND,
+                                "Course not found."
+                        ));
 
         // --------------------------------------------------------
         // 5. Verify teacher owns this course
@@ -123,12 +121,12 @@ public class AttendanceSessionServiceImpl
                         .getId()
                         .equals(teacher.getId())) {
 
-            throw new RuntimeException(
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
                     "You are not authorized to take attendance "
                             + "for this course"
             );
         }
-
 
         // --------------------------------------------------------
         // 6. Prevent multiple OPEN sessions for same course
@@ -143,12 +141,12 @@ public class AttendanceSessionServiceImpl
 
         if (activeSession) {
 
-            throw new RuntimeException(
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
                     "An attendance session is already open "
                             + "for this course"
             );
         }
-
 
         // --------------------------------------------------------
         // 7. Create attendance session
@@ -169,7 +167,6 @@ public class AttendanceSessionServiceImpl
                         )
                         .build();
 
-
         // --------------------------------------------------------
         // 8. Save session
         // --------------------------------------------------------
@@ -177,14 +174,12 @@ public class AttendanceSessionServiceImpl
         AttendanceSession saved =
                 attendanceSessionRepository.save(session);
 
-
         // --------------------------------------------------------
         // 9. Return response
         // --------------------------------------------------------
 
         return mapToResponse(saved);
     }
-
 
     // ============================================================
     // GET SESSION
@@ -273,7 +268,6 @@ public class AttendanceSessionServiceImpl
         );
     }
 
-
     // ============================================================
     // GET OPEN SESSION FOR TEACHER'S COURSE
     // ============================================================
@@ -291,8 +285,9 @@ public class AttendanceSessionServiceImpl
         if (authentication == null ||
                 !authentication.isAuthenticated()) {
 
-            throw new RuntimeException(
-                    "User is not authenticated"
+            throw new ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED,
+                    "User is not authenticated."
             );
         }
 
@@ -301,11 +296,10 @@ public class AttendanceSessionServiceImpl
         Teacher teacher =
                 teacherRepository
                         .findByUser_Email(email)
-                        .orElseThrow(() ->
-                                new RuntimeException(
-                                        "Teacher not found for logged-in user"
-                                )
-                        );
+                        .orElseThrow(() -> new ResponseStatusException(
+                                HttpStatus.NOT_FOUND,
+                                "Teacher account not found."
+                        ));
 
         AttendanceSession session =
                 attendanceSessionRepository
@@ -313,25 +307,24 @@ public class AttendanceSessionServiceImpl
                                 courseId,
                                 AttendanceSessionStatus.OPEN
                         )
-                        .orElseThrow(() ->
-                                new RuntimeException(
-                                        "No open attendance session found for this course"
-                                )
-                        );
+                        .orElseThrow(() -> new ResponseStatusException(
+                                HttpStatus.NOT_FOUND,
+                                "No open attendance session found for this course."
+                        ));
 
         if (session.getTeacher() == null ||
                 !session.getTeacher()
                         .getId()
                         .equals(teacher.getId())) {
 
-            throw new RuntimeException(
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
                     "You are not authorized to view this attendance session"
             );
         }
 
         return mapToResponse(session);
     }
-
 
     // ============================================================
     // GET MY OPEN SESSIONS FOR STUDENT
@@ -366,7 +359,6 @@ public class AttendanceSessionServiceImpl
                 .map(this::mapToResponse)
                 .toList();
     }
-
 
     // ============================================================
     // CLOSE ATTENDANCE SESSION
@@ -482,11 +474,11 @@ public class AttendanceSessionServiceImpl
                 teacherRepository
                         .findByUser_Email(email)
                         .orElseThrow(() ->
-                                new RuntimeException(
+                                new ResponseStatusException(
+                                        HttpStatus.NOT_FOUND,
                                         "Teacher not found for logged-in user."
                                 )
                         );
-
 
         // --------------------------------------------------------
         // 2. Get all sessions belonging to this teacher
@@ -497,7 +489,6 @@ public class AttendanceSessionServiceImpl
                         .findByTeacherIdOrderByStartedAtDesc(
                                 teacher.getId()
                         );
-
 
         // --------------------------------------------------------
         // 3. Convert sessions into history response
@@ -676,7 +667,6 @@ public class AttendanceSessionServiceImpl
                 .toList();
     }
 
-
     @Override
     @Transactional(readOnly = true)
     public List<AttendanceSessionStudentResponse> getSessionAttendance(
@@ -687,22 +677,19 @@ public class AttendanceSessionServiceImpl
         AttendanceSession session =
                 attendanceSessionRepository
                         .findById(sessionId)
-                        .orElseThrow(() ->
-                                new RuntimeException(
-                                        "Attendance session not found with ID: "
-                                                + sessionId
-                                )
-                        );
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Attendance session not found."
+                ));
 
         // 2. Find logged-in teacher
         Teacher teacher =
                 teacherRepository
                         .findByUser_Email(email)
-                        .orElseThrow(() ->
-                                new RuntimeException(
-                                        "Teacher not found for logged-in user."
-                                )
-                        );
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Teacher account not found."
+                ));
 
         // 3. Verify that this session belongs to the teacher
         if (session.getTeacher() == null ||
@@ -710,7 +697,8 @@ public class AttendanceSessionServiceImpl
                         .getId()
                         .equals(teacher.getId())) {
 
-            throw new RuntimeException(
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
                     "You are not authorized to view this attendance session."
             );
         }
@@ -744,7 +732,6 @@ public class AttendanceSessionServiceImpl
                 })
                 .toList();
     }
-
 
     // ============================================================
     // MAP ENTITY → RESPONSE

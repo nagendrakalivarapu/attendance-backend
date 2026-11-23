@@ -17,7 +17,6 @@ public class AttendanceEmailController {
 
     private final AttendanceEmailService attendanceEmailService;
 
-
     // ============================================================
     // PREVIEW
     // ============================================================
@@ -35,7 +34,6 @@ public class AttendanceEmailController {
                         .previewAttendanceEmails(request)
         );
     }
-
 
     // ============================================================
     // SEND

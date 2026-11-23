@@ -1,4 +1,3 @@
-
 package com.smartattendance.config;
 
 import com.smartattendance.security.jwt.JwtAuthenticationFilter;
