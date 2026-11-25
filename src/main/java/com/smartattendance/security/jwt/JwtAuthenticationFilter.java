@@ -1,13 +1,13 @@
+
 package com.smartattendance.security.jwt;
 
 import com.smartattendance.security.service.CustomUserDetailsService;
-import com.smartattendance.service.TokenRevocationService;
+import com.smartattendance.service.impl.TokenRevocationService;
 
 import io.jsonwebtoken.JwtException;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
-import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
@@ -16,6 +16,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
@@ -30,16 +31,15 @@ import java.io.IOException;
 @Slf4j
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
-    private static final String ACCESS_COOKIE = "ACCESS_TOKEN";
+    private static final String BEARER_PREFIX = "Bearer ";
 
     private final JwtService jwtService;
-
     private final CustomUserDetailsService userDetailsService;
-
     private final TokenRevocationService tokenRevocationService;
 
     /**
-     * Skip JWT authentication for public authentication endpoints.
+     * Skip JWT authentication only for public authentication endpoints.
+     * Logout is intentionally NOT skipped.
      */
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
@@ -48,13 +48,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         return path.equals("/api/auth/login")
                 || path.equals("/api/auth/verify-otp")
-                || path.equals("/api/auth/resend-otp")
-                || path.equals("/api/auth/csrf")
-                || path.equals("/api/auth/logout");
+                || path.equals("/api/auth/resend-otp");
     }
 
     /**
-     * Extract and validate JWT from the HttpOnly cookie.
+     * Authenticate requests using Authorization: Bearer <JWT>.
      */
     @Override
     protected void doFilterInternal(
@@ -69,9 +67,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             return;
         }
 
-        // Read JWT from ACCESS_TOKEN cookie.
-        String token = extractTokenFromCookie(request);
+        String token = extractBearerToken(request);
 
+        // No bearer token: continue without authentication.
+        // Protected endpoints will be rejected by Spring Security.
         if (token == null || token.isBlank()) {
             filterChain.doFilter(request, response);
             return;
@@ -79,15 +78,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         try {
 
-            // Extract username/email from JWT.
-            String email = jwtService.extractUsername(token);
-
-            if (email == null || email.isBlank()) {
-                filterChain.doFilter(request, response);
-                return;
-            }
-
-            // Check whether this JWT was revoked during logout.
+            // Reject tokens revoked during logout.
             if (tokenRevocationService.isTokenRevoked(token)) {
 
                 SecurityContextHolder.clearContext();
@@ -101,11 +92,20 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 return;
             }
 
-            // Load user from database.
+            // Extract username/email from the signed JWT.
+            String email = jwtService.extractUsername(token);
+
+            if (email == null || email.isBlank()) {
+                SecurityContextHolder.clearContext();
+                filterChain.doFilter(request, response);
+                return;
+            }
+
+            // Load the account and its authorities from the database.
             UserDetails userDetails =
                     userDetailsService.loadUserByUsername(email);
 
-            // Validate JWT and account status.
+            // Validate JWT signature, expiry, subject and account status.
             if (jwtService.isTokenValid(token, userDetails)) {
 
                 UsernamePasswordAuthenticationToken authentication =
@@ -120,8 +120,20 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                                 .buildDetails(request)
                 );
 
-                SecurityContextHolder.getContext()
-                        .setAuthentication(authentication);
+                SecurityContext context =
+                        SecurityContextHolder.createEmptyContext();
+
+                context.setAuthentication(authentication);
+
+                SecurityContextHolder.setContext(context);
+
+            } else {
+                SecurityContextHolder.clearContext();
+
+                log.debug(
+                        "Invalid JWT rejected for request: {}",
+                        request.getServletPath()
+                );
             }
 
         } catch (JwtException
@@ -140,25 +152,22 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     }
 
     /**
-     * Extract ACCESS_TOKEN from request cookies.
+     * Extract bearer JWT from the Authorization header.
      */
-    private String extractTokenFromCookie(
-            HttpServletRequest request
-    ) {
+    private String extractBearerToken(HttpServletRequest request) {
 
-        Cookie[] cookies = request.getCookies();
+        String authorizationHeader =
+                request.getHeader("Authorization");
 
-        if (cookies == null) {
+        if (authorizationHeader == null
+                || !authorizationHeader.startsWith(BEARER_PREFIX)) {
             return null;
         }
 
-        for (Cookie cookie : cookies) {
+        String token = authorizationHeader
+                .substring(BEARER_PREFIX.length())
+                .trim();
 
-            if (ACCESS_COOKIE.equals(cookie.getName())) {
-                return cookie.getValue();
-            }
-        }
-
-        return null;
+        return token.isEmpty() ? null : token;
     }
 }

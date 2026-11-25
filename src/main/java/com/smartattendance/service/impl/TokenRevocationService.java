@@ -1,4 +1,4 @@
-package com.smartattendance.service;
+package com.smartattendance.service.impl;
 
 import com.smartattendance.entity.RevokedToken;
 import com.smartattendance.repository.RevokedTokenRepository;

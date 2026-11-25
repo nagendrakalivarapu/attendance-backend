@@ -1,3 +1,4 @@
+
 package com.smartattendance.config;
 
 import com.smartattendance.security.jwt.JwtAuthenticationFilter;
@@ -19,8 +20,7 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
-import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
-import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
+
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -44,15 +44,10 @@ public class SecurityConfig {
 
         http
 
-                // Enable CSRF protection for cookie-based authentication.
-                .csrf(csrf -> csrf
-                        .csrfTokenRepository(
-                                CookieCsrfTokenRepository.withHttpOnlyFalse()
-                        )
-                        .csrfTokenRequestHandler(
-                                new CsrfTokenRequestAttributeHandler()
-                        )
-                )
+                // JWT bearer authentication does not require CSRF protection.
+                // This assumes authentication is not stored in automatically
+                // transmitted browser cookies.
+                .csrf(csrf -> csrf.disable())
 
                 // CORS configuration.
                 .cors(cors -> cors.configurationSource(
@@ -69,7 +64,7 @@ public class SecurityConfig {
                 // Authentication and authorization.
                 .authorizeHttpRequests(auth -> auth
 
-                        // Browser preflight requests.
+                        // Allow browser preflight requests.
                         .requestMatchers(
                                 HttpMethod.OPTIONS,
                                 "/**"
@@ -81,18 +76,6 @@ public class SecurityConfig {
                                 "/api/auth/login",
                                 "/api/auth/verify-otp",
                                 "/api/auth/resend-otp"
-                        ).permitAll()
-
-                        // CSRF token endpoint.
-                        .requestMatchers(
-                                HttpMethod.GET,
-                                "/api/auth/csrf"
-                        ).permitAll()
-
-                        // Public logout endpoint.
-                        .requestMatchers(
-                                HttpMethod.POST,
-                                "/api/auth/logout"
                         ).permitAll()
 
                         // Public profile picture viewing only.
@@ -133,7 +116,7 @@ public class SecurityConfig {
                         )
                 )
 
-                // Register JWT filter.
+                // Register JWT filter before username/password authentication.
                 .addFilterBefore(
                         jwtAuthenticationFilter,
                         UsernamePasswordAuthenticationFilter.class
@@ -165,17 +148,17 @@ public class SecurityConfig {
                 )
         );
 
-        // Allow CSRF header.
+        // Allow JWT bearer authentication.
         configuration.setAllowedHeaders(
                 List.of(
+                        "Authorization",
                         "Content-Type",
-                        "Accept",
-                        "X-XSRF-TOKEN"
+                        "Accept"
                 )
         );
 
-        // Required for HttpOnly authentication cookies.
-        configuration.setAllowCredentials(true);
+        // JWT bearer authentication does not require cookies.
+        configuration.setAllowCredentials(false);
 
         configuration.setMaxAge(3600L);
 

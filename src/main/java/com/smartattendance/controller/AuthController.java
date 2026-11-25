@@ -1,3 +1,4 @@
+
 package com.smartattendance.controller;
 
 import com.smartattendance.dto.auth.LoginRequest;
@@ -7,46 +8,31 @@ import com.smartattendance.dto.auth.VerifyOtpRequest;
 import com.smartattendance.security.LoginRateLimiter;
 import com.smartattendance.security.OtpRateLimiter;
 import com.smartattendance.service.AuthService;
-import com.smartattendance.service.TokenRevocationService;
+import com.smartattendance.service.impl.TokenRevocationService;
+
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 
-import java.time.Duration;
 import java.util.Map;
 
 import lombok.RequiredArgsConstructor;
 
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.web.bind.annotation.*;
-import jakarta.servlet.http.Cookie;
 
 @RestController
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
 public class AuthController {
 
-    private static final String ACCESS_COOKIE = "ACCESS_TOKEN";
+    private static final String BEARER_PREFIX = "Bearer ";
 
     private final AuthService authService;
     private final OtpRateLimiter otpRateLimiter;
-
     private final LoginRateLimiter loginRateLimiter;
-
     private final TokenRevocationService tokenRevocationService;
-
-    @Value("${jwt.expiration}")
-    private long jwtExpiration;
-
-    @Value("${app.cookie.secure:false}")
-    private boolean secureCookie;
-
-    @Value("${app.cookie.same-site:Lax}")
-    private String sameSite;
 
     // Login.
     @PostMapping("/login")
@@ -60,9 +46,11 @@ public class AuthController {
                 httpRequest.getRemoteAddr()
         );
 
+        // Student receives a JWT immediately.
+        // Admin and Teacher receive requiresOtp=true and no token yet.
         LoginResponse response = authService.login(request);
 
-        return createAuthenticatedResponse(response);
+        return ResponseEntity.ok(response);
     }
 
     // OTP verification.
@@ -76,12 +64,13 @@ public class AuthController {
                 httpRequest.getRemoteAddr()
         );
 
+        // Successful OTP verification returns the JWT in JSON.
         LoginResponse response = authService.verifyOtp(
                 request.getEmail(),
                 request.getOtp()
         );
 
-        return createAuthenticatedResponse(response);
+        return ResponseEntity.ok(response);
     }
 
     // Resend OTP.
@@ -105,20 +94,11 @@ public class AuthController {
         );
     }
 
-    // Get CSRF token.
-    @GetMapping("/csrf")
-    public ResponseEntity<Map<String, String>> csrf(
-            CsrfToken csrfToken) {
-
-        return ResponseEntity.ok(
-                Map.of("token", csrfToken.getToken())
-        );
-    }
-
     // Get currently authenticated user.
     @GetMapping("/me")
     public ResponseEntity<Map<String, String>> currentUser(
-            Authentication authentication) {
+            Authentication authentication
+    ) {
 
         String role = authentication.getAuthorities()
                 .stream()
@@ -127,77 +107,35 @@ public class AuthController {
                         authority.getAuthority().replace("ROLE_", ""))
                 .orElse("");
 
-        return ResponseEntity.ok(Map.of(
-                "email", authentication.getName(),
-                "role", role
-        ));
+        return ResponseEntity.ok(
+                Map.of(
+                        "email", authentication.getName(),
+                        "role", role
+                )
+        );
     }
 
-    // Logout, revoke JWT and clear authentication cookie.
+    // Logout and revoke the current bearer JWT.
     @PostMapping("/logout")
     public ResponseEntity<Void> logout(
-            HttpServletRequest request
+            @RequestHeader(
+                    value = HttpHeaders.AUTHORIZATION,
+                    required = false
+            ) String authorizationHeader
     ) {
 
-        // Read the current ACCESS_TOKEN cookie.
-        String token = null;
+        if (authorizationHeader != null
+                && authorizationHeader.startsWith(BEARER_PREFIX)) {
 
-        Cookie[] cookies = request.getCookies();
+            String token = authorizationHeader
+                    .substring(BEARER_PREFIX.length())
+                    .trim();
 
-        if (cookies != null) {
-            for (Cookie cookie : cookies) {
-                if (ACCESS_COOKIE.equals(cookie.getName())) {
-                    token = cookie.getValue();
-                    break;
-                }
+            if (!token.isBlank()) {
+                tokenRevocationService.revokeToken(token);
             }
         }
 
-        // Revoke the current JWT.
-        if (token != null && !token.isBlank()) {
-            tokenRevocationService.revokeToken(token);
-        }
-
-        // Clear the browser cookie.
-        ResponseCookie cookie = ResponseCookie.from(
-                        ACCESS_COOKIE, "")
-                .httpOnly(true)
-                .secure(secureCookie)
-                .path("/api")
-                .sameSite(sameSite)
-                .maxAge(Duration.ZERO)
-                .build();
-
-        return ResponseEntity.noContent()
-                .header(HttpHeaders.SET_COOKIE, cookie.toString())
-                .build();
-    }
-
-    // Create authentication cookie after successful login or OTP.
-    private ResponseEntity<LoginResponse> createAuthenticatedResponse(
-            LoginResponse response) {
-
-        String token = response.getToken();
-
-        // OTP is still pending for admin/teacher login.
-        if (token == null || token.isBlank()) {
-            return ResponseEntity.ok(response);
-        }
-
-        ResponseCookie cookie = ResponseCookie.from(
-                        ACCESS_COOKIE, token)
-                .httpOnly(true)
-                .secure(secureCookie)
-                .path("/api")
-                .sameSite(sameSite)
-                .maxAge(Duration.ofMillis(jwtExpiration))
-                .build();
-
-        // Never expose JWT in the response JSON.
-        response.setToken(null);
-
-        return ResponseEntity.ok()
-                .header(HttpHeaders.SET_COOKIE, cookie.toString())
-                .body(response);
+        return ResponseEntity.noContent().build();
     }
 }
